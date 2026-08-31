@@ -1,0 +1,121 @@
+[build-system]
+build-backend = 'setuptools.build_meta'
+requires = ['setuptools>=64', 'setuptools_scm>=8']
+
+[dependency-groups]
+dev = ['pre-commit', 'pytest-cov', { include-group = 'test' }]
+test = ['mypy', 'pyright', 'pytest']
+
+[project]
+authors = [{ name = 'user27182' }]
+classifiers = [
+  'Development Status :: 3 - Alpha',
+  'Framework :: Pytest',
+  'Intended Audience :: Developers',
+  'Operating System :: MacOS',
+  'Operating System :: Microsoft :: Windows',
+  'Operating System :: POSIX :: Linux',
+  'Programming Language :: Python :: 3',
+  'Programming Language :: Python :: 3.10',
+  'Programming Language :: Python :: 3.11',
+  'Programming Language :: Python :: 3.12',
+  'Programming Language :: Python :: 3.13',
+  'Programming Language :: Python :: 3.14',
+  'Topic :: Software Development :: Quality Assurance',
+  'Topic :: Software Development :: Testing',
+  'Typing :: Typed',
+]
+dependencies = ['pycroscope>=0.5,<0.6', 'pytest>=7', 'typing-extensions>=4.5']
+description = 'pytest plugin that checks a value static type and its runtime type in one assertion'
+dynamic = ['version']
+keywords = ['annotations', 'mypy', 'pyright', 'pytest', 'typing']
+license = 'MIT'
+name = 'type-assert'
+readme = 'README.md'
+requires-python = '>=3.10'
+
+[project.entry-points.pytest11]
+typeassert = 'typeassert.plugin'
+
+[project.optional-dependencies]
+# A checker is whatever the project under test already uses; neither is required.
+all = ['type-assert[mypy,pyright]']
+mypy = ['mypy>=1.11']
+pyright = ['pyright>=1.1.390']
+
+[project.urls]
+Homepage = 'https://github.com/user27182/type-assert'
+Issues = 'https://github.com/user27182/type-assert/issues'
+
+[tool.coverage.run]
+branch = true
+omit = ['*/_version.py']
+parallel = true
+source = ['typeassert']
+
+[tool.pytest.ini_options]
+addopts = '--cov=typeassert --cov-fail-under=95 --strict-config --strict-markers'
+testpaths = 'tests'
+
+[tool.ruff]
+indent-width = 4
+line-length = 99
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 75
+quote-style = 'single'
+
+[tool.ruff.lint]
+extend-select = [
+  'A',
+  'B',
+  'C4',
+  'D',
+  'E',
+  'EM',
+  'F',
+  'FA',
+  'I',
+  'ICN',
+  'N',
+  'PERF',
+  'PGH',
+  'PIE',
+  'PT',
+  'RET',
+  'RSE',
+  'RUF',
+  'SIM',
+  'T10',
+  'T20',
+  'TCH',
+  'TID',
+  'UP',
+  'W',
+  'YTT',
+]
+ignore = ['D203', 'D211', 'D213']
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-single-line = true
+force-sort-within-sections = true
+required-imports = ['from __future__ import annotations']
+
+[tool.ruff.lint.per-file-ignores]
+'tests/*' = ['D103']
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+[tool.setuptools]
+license-files = ['LICENSE']
+packages = ['typeassert', 'typeassert._checkers']
+
+[tool.setuptools.package-data]
+typeassert = ['py.typed']
+
+[tool.setuptools_scm]
+version_scheme = 'release-branch-semver'
+write_to = 'typeassert/_version.py'

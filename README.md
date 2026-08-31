@@ -1,0 +1,116 @@
+# type-assert
+
+pytest plugin that checks a value's static type and its runtime type in one assertion.
+
+A type checker only ever sees the annotations. A runtime checker only ever sees the
+values. Either can be right while the other is wrong, and overloaded signatures are
+where they drift apart. `type-assert` pins both halves at once, from one line:
+
+```python
+assert_types(json.loads('[1]'), Any)
+assert_types(sorted({'b', 'a'}), list[str])
+```
+
+Each line becomes two tests. One runs the expression and checks the value it produced.
+The other checks what a type checker inferred for the same line. The line only passes
+if the two agree.
+
+> **Warning** — The API of this package is unstable and likely to change between
+> minor versions (for example `0.1.0` to `0.2.0`). Pin the exact version you
+> depend on, for example `type-assert==0.1.0`.
+
+## Installation
+
+```bash
+pip install type-assert[mypy]     # or [pyright], or [all]
+```
+
+The checker itself is an extra, because it should be whichever one your project
+already uses.
+
+## Usage
+
+Put a directory of case files somewhere in your test tree and point the plugin at it:
+
+```toml
+[tool.pytest.ini_options]
+typeassert_cases = 'tests/typing/cases'
+```
+
+A case file is an ordinary Python module. Every top-level `assert_types` call is a case;
+everything else — imports, helpers, constants — is setup shared by the cases in that
+file:
+
+```python
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from typeassert import assert_types
+
+
+def payload() -> str:
+    """Return a document to parse."""
+    return '{"a": 1}'
+
+
+assert_types(json.loads(payload()), Any)
+assert_types(sorted({'b', 'a'}), list[str])
+assert_types(''.join([]), str)
+```
+
+Running pytest collects each case file as a test file of its own:
+
+```text
+tests/typing/cases/basics.py::setup
+tests/typing/cases/basics.py::sorted({'b', 'a'}) -> list[str] [runtime]
+tests/typing/cases/basics.py::sorted({'b', 'a'}) -> list[str] [static]
+```
+
+## How `assert_types` does both
+
+To a type checker, `assert_types` *is*
+[`typing_extensions.assert_type`](https://typing-extensions.readthedocs.io/en/latest/#typing_extensions.assert_type),
+aliased under `TYPE_CHECKING`. Checkers resolve an aliased import back to its original
+definition, so the special case still applies: the inferred type must match the second
+argument **exactly**, and a supertype is a failure rather than a pass.
+
+At runtime that name is bound to a real checker instead, backed by
+[pycroscope](https://pycroscope.readthedocs.io/), which walks containers exhaustively —
+it catches a `None` at any position in a `list[int]`, not only the first element.
+
+Writing the type once covers both halves, and there is no way for them to drift apart.
+
+## Choosing a checker
+
+```toml
+[tool.pytest.ini_options]
+typeassert_checker = 'mypy'    # or 'pyright'
+```
+
+Both are supported and behave the same way from the outside. They do not always infer
+the same type for the same expression, so a case file is written against one of them.
+
+`ty` is deliberately not supported yet: it is pre-1.0 and its output format is still
+moving. Adding a backend is a single module — see `typeassert/_checkers/`.
+
+## Skipping a case at runtime
+
+A case that cannot run everywhere — it crashes on a platform, or needs something that is
+not always installed — is named in a `SKIP_RUNTIME` mapping in its own file:
+
+```python
+SKIP_RUNTIME = {
+    'expression exactly as written': 'why running it fails here',
+}
+```
+
+Only the runtime half is skipped; the checker still checks the case. The mapping is read
+after the file's setup has run, so making an entry conditional is ordinary Python. An
+entry naming an expression that no case makes fails the file's `setup` test, so a skip
+cannot quietly outlive the case it was written for.
+
+## License
+
+MIT
