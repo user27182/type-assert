@@ -4,7 +4,7 @@ requires = ['setuptools>=64', 'setuptools_scm>=8']
 
 [dependency-groups]
 dev = ['pre-commit', 'pytest-cov', { include-group = 'test' }]
-test = ['mypy', 'pyright', 'pytest']
+test = ['mypy', 'pyrefly', 'pyright', 'pytest']
 
 [project]
 authors = [{ name = 'user27182' }]
@@ -39,8 +39,9 @@ type_assert = 'type_assert.plugin'
 
 [project.optional-dependencies]
 # A checker is whatever the project under test already uses; neither is required.
-all = ['type-assert[mypy,pyright]']
+all = ['type-assert[mypy,pyrefly,pyright]']
 mypy = ['mypy>=1.11']
+pyrefly = ['pyrefly>=1.0']
 pyright = ['pyright>=1.1.390']
 
 [project.urls]

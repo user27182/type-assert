@@ -11,6 +11,7 @@ from type_assert import CHECKERS
 from type_assert import CheckerError
 from type_assert import get_checker
 from type_assert._checkers import MypyChecker
+from type_assert._checkers import PyreflyChecker
 from type_assert._checkers import PyrightChecker
 from type_assert._checkers._pyright import _extract_report
 
@@ -55,10 +56,10 @@ def package(checker_root):
 
 
 def test_registry_lists_both_checkers():
-    assert sorted(CHECKERS) == ['mypy', 'pyright']
+    assert sorted(CHECKERS) == ['mypy', 'pyrefly', 'pyright']
 
 
-@pytest.mark.parametrize('name', ['mypy', 'pyright'])
+@pytest.mark.parametrize('name', ['mypy', 'pyrefly', 'pyright'])
 def test_get_checker_returns_the_named_checker(name):
     assert get_checker(name).name == name
 
@@ -66,7 +67,7 @@ def test_get_checker_returns_the_named_checker(name):
 def test_an_unknown_checker_names_the_ones_that_exist():
     with pytest.raises(CheckerError, match='Unknown type checker'):
         get_checker('nope')
-    with pytest.raises(CheckerError, match='mypy, pyright'):
+    with pytest.raises(CheckerError, match='mypy, pyrefly, pyright'):
         get_checker('nope')
 
 
@@ -75,7 +76,11 @@ def test_ty_is_not_supported_yet():
     assert 'ty' not in CHECKERS
 
 
-@pytest.mark.parametrize('checker', [MypyChecker(), PyrightChecker()], ids=['mypy', 'pyright'])
+@pytest.mark.parametrize(
+    'checker',
+    [MypyChecker(), PyreflyChecker(), PyrightChecker()],
+    ids=['mypy', 'pyrefly', 'pyright'],
+)
 class TestBackend:
     """Every backend behaves the same way from the outside."""
 
@@ -251,3 +256,29 @@ def test_the_base_checker_leaves_running_to_its_subclasses(tmp_path):
 
     with pytest.raises(NotImplementedError):
         Checker().run('cases', root=tmp_path, cache_dir=None)
+
+
+class TestPyreflyGuards:
+    """pyrefly passes silently in two situations where it checked nothing."""
+
+    def test_no_configuration_is_refused_rather_than_passed(self, tmp_path):
+        # Given no config, pyrefly ignores the path it is handed and reports success.
+        directory = tmp_path / 'cases'
+        directory.mkdir()
+        (directory / 'sample.py').write_text(WRONG, encoding='utf-8')
+        with pytest.raises(CheckerError, match='checked nothing'):
+            PyreflyChecker().run('cases', root=tmp_path, cache_dir=None)
+
+    def test_a_missing_target_is_refused(self, tmp_path):
+        from tests.conftest import write_pyrefly_config
+
+        write_pyrefly_config(tmp_path)
+        with pytest.raises(CheckerError, match='does not exist'):
+            PyreflyChecker().run('absent', root=tmp_path, cache_dir=None)
+
+    def test_the_refusal_says_how_to_configure_it(self, tmp_path):
+        directory = tmp_path / 'cases'
+        directory.mkdir()
+        (directory / 'sample.py').write_text(CLEAN, encoding='utf-8')
+        with pytest.raises(CheckerError, match=r'project-includes'):
+            PyreflyChecker().run('cases', root=tmp_path, cache_dir=None)

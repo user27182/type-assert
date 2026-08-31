@@ -25,4 +25,13 @@ def checker_root(tmp_path, monkeypatch):
     (tmp_path / 'pyrightconfig.json').write_text(
         json.dumps({'extraPaths': [str(REPO_ROOT)]}), encoding='utf-8'
     )
+    write_pyrefly_config(tmp_path)
     return tmp_path
+
+
+def write_pyrefly_config(directory):
+    """Give `directory` a pyrefly config, which pyrefly refuses to work without."""
+    (directory / 'pyrefly.toml').write_text(
+        f'project-includes = ["cases"]\nsearch-path = [{str(REPO_ROOT)!r}]\n',
+        encoding='utf-8',
+    )

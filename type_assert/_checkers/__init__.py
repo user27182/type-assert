@@ -6,6 +6,7 @@ from ._base import Checker
 from ._base import CheckerError
 from ._base import Diagnostic
 from ._mypy import MypyChecker
+from ._pyrefly import PyreflyChecker
 from ._pyright import PyrightChecker
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     'CheckerError',
     'Diagnostic',
     'MypyChecker',
+    'PyreflyChecker',
     'PyrightChecker',
     'get_checker',
 ]
@@ -25,6 +27,7 @@ __all__ = [
 #: implementing `Checker` plus an entry here.
 CHECKERS: dict[str, type[Checker]] = {
     MypyChecker.name: MypyChecker,
+    PyreflyChecker.name: PyreflyChecker,
     PyrightChecker.name: PyrightChecker,
 }
 

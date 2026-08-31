@@ -29,11 +29,11 @@ def project(pytester, monkeypatch):
         json.dumps({'extraPaths': [str(REPO_ROOT)]}), encoding='utf-8'
     )
 
-    def _project(source, *, checker='mypy', cases='cases', name='sample.py'):
-        settings = f'typeassert_cases = {cases}\n' if cases is not None else ''
+    def _project(source, *, checkers='mypy', cases='cases', name='sample.py'):
+        settings = f'type_assert_cases = {cases}\n' if cases is not None else ''
         pytester.makefile(
             '.ini',
-            pytest=f'[pytest]\n{settings}typeassert_checker = {checker}\n',
+            pytest=f'[pytest]\n{settings}type_assert_checkers = {checkers}\n',
         )
         if cases is not None:
             directory = pytester.path / cases
@@ -57,7 +57,7 @@ def test_each_case_is_named_after_the_claim_it_makes(project):
     collected = set(result.outlines)
     assert 'cases/sample.py::setup' in collected
     assert 'cases/sample.py::len([1]) -> int [runtime]' in collected
-    assert 'cases/sample.py::len([1]) -> int [static]' in collected
+    assert 'cases/sample.py::len([1]) -> int [static: mypy]' in collected
     assert "cases/sample.py::sorted({'b', 'a'}) -> list[str] [runtime]" in collected
 
 
@@ -72,7 +72,7 @@ def test_a_supertype_fails_statically_but_passes_at_runtime(project):
     source = 'from type_assert import assert_types\n\nassert_types(len([1]), object)\n'
     result = project(source).runpytest()
     result.assert_outcomes(passed=2, failed=1)
-    result.stdout.fnmatch_lines(['*[[]static[]]*'])
+    result.stdout.fnmatch_lines(['*static: mypy*'])
 
 
 def test_a_wrong_runtime_value_fails_the_runtime_half(project):
@@ -156,28 +156,155 @@ def test_files_outside_the_cases_directory_are_left_alone(project):
 
 
 def test_an_unknown_checker_is_reported(project):
-    result = project(CLEAN, checker='nope').runpytest()
+    result = project(CLEAN, checkers='nope').runpytest()
     result.stdout.fnmatch_lines(['*Unknown type checker*'])
 
 
 @pytest.mark.parametrize('checker', ['mypy', 'pyright'])
 def test_either_checker_drives_the_static_half(project, checker):
-    result = project(CLEAN, checker=checker).runpytest()
+    result = project(CLEAN, checkers=checker).runpytest()
     result.assert_outcomes(passed=5)
 
 
 @pytest.mark.parametrize('checker', ['mypy', 'pyright'])
 def test_either_checker_catches_a_wrong_type(project, checker):
     source = 'from type_assert import assert_types\n\nassert_types(len([1]), str)\n'
-    result = project(source, checker=checker).runpytest()
+    result = project(source, checkers=checker).runpytest()
     result.assert_outcomes(passed=1, failed=2)
 
 
 def test_the_checker_defaults_to_mypy(pytester, monkeypatch):
     monkeypatch.setenv('MYPYPATH', str(REPO_ROOT))
-    pytester.makefile('.ini', pytest='[pytest]\ntypeassert_cases = cases\n')
+    pytester.makefile('.ini', pytest='[pytest]\ntype_assert_cases = cases\n')
     directory = pytester.path / 'cases'
     directory.mkdir()
     directory.joinpath('sample.py').write_text(CLEAN, encoding='utf-8')
     result = pytester.runpytest()
     result.assert_outcomes(passed=5)
+
+
+class TestSeveralCheckers:
+    """A case can be held to more than one checker at once."""
+
+    def test_each_case_gets_a_static_test_per_checker(self, project):
+        result = project(CLEAN, checkers='mypy pyright').runpytest('--collect-only', '-q')
+        collected = set(result.outlines)
+        assert 'cases/sample.py::len([1]) -> int [static: mypy]' in collected
+        assert 'cases/sample.py::len([1]) -> int [static: pyright]' in collected
+        # One runtime test only: the value does not depend on who checked it.
+        assert 'cases/sample.py::len([1]) -> int [runtime]' in collected
+
+    def test_both_checkers_run(self, project):
+        # setup + 2 cases x (1 runtime + 2 static) = 7
+        result = project(CLEAN, checkers='mypy pyright').runpytest()
+        result.assert_outcomes(passed=7)
+
+    def test_a_wrong_type_fails_once_per_checker(self, project):
+        source = 'from type_assert import assert_types\n\nassert_types(len([1]), str)\n'
+        result = project(source, checkers='mypy pyright').runpytest()
+        # The runtime half fails once, and each checker's static half fails.
+        result.assert_outcomes(passed=1, failed=3)
+
+    def test_the_failure_names_the_checker_that_reported_it(self, project):
+        source = 'from type_assert import assert_types\n\nassert_types(len([1]), str)\n'
+        result = project(source, checkers='mypy pyright').runpytest()
+        result.stdout.fnmatch_lines(['*mypy reported 1 error*'])
+        result.stdout.fnmatch_lines(['*pyright reported 1 error*'])
+
+    def test_repeated_and_padded_names_are_tolerated(self, project):
+        result = project(CLEAN, checkers='  mypy   mypy  ').runpytest('--collect-only', '-q')
+        collected = [line for line in result.outlines if 'static' in line]
+        # Named twice, so collected twice; pytest disambiguates the duplicate ids.
+        assert len(collected) == 4
+
+    def test_an_empty_setting_falls_back_to_the_default(self, project):
+        result = project(CLEAN, checkers='').runpytest('--collect-only', '-q')
+        assert any('static: mypy' in line for line in result.outlines)
+
+
+class TestCheckerConfiguration:
+    """The project's own checker configuration applies, and can be added to."""
+
+    UNUSED_IGNORE = (
+        'from type_assert import assert_types\n\nassert_types(len([1]), int)  # type: ignore\n'
+    )
+
+    def test_a_project_mypy_config_is_picked_up(self, project):
+        # Nothing tells the checker about this file: it is found because the
+        # checker runs from the rootdir, which is what makes project config work.
+        pytester = project(self.UNUSED_IGNORE)
+        pytester.path.joinpath('mypy.ini').write_text(
+            '[mypy]\nwarn_unused_ignores = True\n', encoding='utf-8'
+        )
+        result = pytester.runpytest()
+        # setup, runtime and static for the one case; the static half fails.
+        result.assert_outcomes(passed=2, failed=1)
+        result.stdout.fnmatch_lines(['*nused*ignore*'])
+
+    def test_without_that_config_the_same_file_passes(self, project):
+        result = project(self.UNUSED_IGNORE).runpytest()
+        result.assert_outcomes(passed=3)
+
+    def test_extra_mypy_arguments_are_passed_through(self, pytester, monkeypatch):
+        monkeypatch.setenv('MYPYPATH', str(REPO_ROOT))
+        pytester.makefile(
+            '.ini',
+            pytest=(
+                '[pytest]\ntype_assert_cases = cases\n'
+                'type_assert_mypy_args = --warn-unused-ignores\n'
+            ),
+        )
+        directory = pytester.path / 'cases'
+        directory.mkdir()
+        directory.joinpath('sample.py').write_text(self.UNUSED_IGNORE, encoding='utf-8')
+        result = pytester.runpytest()
+        result.assert_outcomes(passed=2, failed=1)
+
+    def test_extra_arguments_can_override_a_default(self, pytester, monkeypatch):
+        # `--follow-imports=silent` is a default, so it has to be overridable.
+        monkeypatch.setenv('MYPYPATH', str(REPO_ROOT))
+        pytester.makefile(
+            '.ini',
+            pytest=(
+                '[pytest]\ntype_assert_cases = cases\n'
+                'type_assert_mypy_args = --follow-imports=normal\n'
+            ),
+        )
+        directory = pytester.path / 'cases'
+        directory.mkdir()
+        directory.joinpath('sample.py').write_text(CLEAN, encoding='utf-8')
+        result = pytester.runpytest()
+        result.assert_outcomes(passed=5)
+
+    def test_extra_pyright_arguments_are_passed_through(self, pytester, monkeypatch):
+        monkeypatch.setenv('MYPYPATH', str(REPO_ROOT))
+        pytester.path.joinpath('pyrightconfig.json').write_text(
+            json.dumps({'extraPaths': [str(REPO_ROOT)]}), encoding='utf-8'
+        )
+        pytester.makefile(
+            '.ini',
+            pytest=(
+                '[pytest]\ntype_assert_cases = cases\n'
+                'type_assert_checkers = pyright\n'
+                'type_assert_pyright_args = --level error\n'
+            ),
+        )
+        directory = pytester.path / 'cases'
+        directory.mkdir()
+        directory.joinpath('sample.py').write_text(CLEAN, encoding='utf-8')
+        result = pytester.runpytest()
+        result.assert_outcomes(passed=5)
+
+    def test_a_bad_argument_is_reported_rather_than_swallowed(self, pytester, monkeypatch):
+        monkeypatch.setenv('MYPYPATH', str(REPO_ROOT))
+        pytester.makefile(
+            '.ini',
+            pytest=(
+                '[pytest]\ntype_assert_cases = cases\ntype_assert_mypy_args = --no-such-flag\n'
+            ),
+        )
+        directory = pytester.path / 'cases'
+        directory.mkdir()
+        directory.joinpath('sample.py').write_text(CLEAN, encoding='utf-8')
+        result = pytester.runpytest()
+        result.stdout.fnmatch_lines(['*mypy failed to run*'])

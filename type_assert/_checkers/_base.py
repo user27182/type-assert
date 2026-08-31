@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
 
@@ -36,7 +37,18 @@ class Checker:
     distribution: str
 
     def run(
-        self, package: str, *, root: Path, cache_dir: Path | None
+        self,
+        package: str,
+        *,
+        root: Path,
+        cache_dir: Path | None,
+        extra_args: Sequence[str] = (),
     ) -> dict[Path, list[Diagnostic]]:
-        """Type-check `package` from `root` and return its errors keyed by file."""
+        """Type-check `package` from `root` and return its errors keyed by file.
+
+        Running from `root` is what makes the project's own checker configuration
+        apply, since that is where every checker looks for it. `extra_args` covers
+        what the configuration cannot say: a different config file, a Python
+        version, a strictness flag.
+        """
         raise NotImplementedError

@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 from ._base import Checker
 from ._base import CheckerError
@@ -35,9 +39,18 @@ class PyrightChecker(Checker):
     distribution = 'pyright'
 
     def run(
-        self, package: str, *, root: Path, cache_dir: Path | None
+        self,
+        package: str,
+        *,
+        root: Path,
+        cache_dir: Path | None,
+        extra_args: Sequence[str] = (),
     ) -> dict[Path, list[Diagnostic]]:
-        """Type-check `package` from `root` and return pyright's errors keyed by file."""
+        """Type-check `package` from `root` and return pyright's errors keyed by file.
+
+        pyright discovers the project's own configuration from `root`, so nothing
+        has to be restated here. Anything it cannot express goes in `extra_args`.
+        """
         del cache_dir  # pyright keeps no cache of its own to point elsewhere.
         # pyright reports only on the files it is given, so unlike mypy it needs no
         # equivalent of `--follow-imports=silent` to stay quiet about the host project.
@@ -46,9 +59,11 @@ class PyrightChecker(Checker):
             sys.executable,
             '-m',
             'pyright',
-            '--outputjson',
             '--pythonpath',
             sys.executable,
+            *extra_args,
+            # Last, because the output is parsed and has to stay parsable.
+            '--outputjson',
             str(target),
         ]
 

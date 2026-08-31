@@ -22,7 +22,7 @@ if the two agree.
 ## Installation
 
 ```bash
-pip install type-assert[mypy]     # or [pyright], or [all]
+pip install type-assert[mypy]     # or [pyright], [pyrefly], or [all]
 ```
 
 The checker itself is an extra, because it should be whichever one your project
@@ -34,7 +34,7 @@ Put a directory of case files somewhere in your test tree and point the plugin a
 
 ```toml
 [tool.pytest.ini_options]
-typeassert_cases = 'tests/typing/cases'
+type_assert_cases = 'tests/typing/cases'
 ```
 
 A case file is an ordinary Python module. Every top-level `assert_types` call is a case;
@@ -86,11 +86,23 @@ Writing the type once covers both halves, and there is no way for them to drift 
 
 ```toml
 [tool.pytest.ini_options]
-typeassert_checker = 'mypy'    # or 'pyright'
+type_assert_checkers = 'mypy'                   # the default
+type_assert_checkers = 'pyright'
+type_assert_checkers = 'mypy pyright pyrefly'   # each with its own test
 ```
 
-Both are supported and behave the same way from the outside. They do not always infer
-the same type for the same expression, so a case file is written against one of them.
+Naming more than one gives every case a static test per checker, so a case has to hold
+under all of them:
+
+```text
+cases/basics.py::sorted({'b', 'a'}) -> list[str] [runtime]
+cases/basics.py::sorted({'b', 'a'}) -> list[str] [static: mypy]
+cases/basics.py::sorted({'b', 'a'}) -> list[str] [static: pyright]
+```
+
+The runtime test is not repeated, since the value does not depend on who checked it.
+Bear in mind that two checkers do not always infer the same type for the same
+expression, so a case that satisfies one may need rewording to satisfy both.
 
 `ty` is deliberately not supported yet: it is pre-1.0 and its output format is still
 moving. Adding a backend is a single module — see `type_assert/_checkers/`.
