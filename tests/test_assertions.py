@@ -7,11 +7,11 @@ checker that only samples them would pass several of these wrongly.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from collections.abc import Iterator
 from collections.abc import Sequence
 import re
 from typing import Any
-from typing import Callable
 from typing import Literal
 from typing import Optional
 from typing import Protocol
@@ -68,10 +68,12 @@ ACCEPTED = [
     pytest.param([{'a': 1}], list[dict[str, int]], id='nested'),
     pytest.param([(1, 'a')], list[tuple[int, str]], id='list-of-tuples'),
     pytest.param(1, Union[int, str], id='union-first'),
+    pytest.param(1, int | str, id='union-pep604'),
+    pytest.param(None, int | None, id='optional-pep604'),
     pytest.param('x', Union[int, str], id='union-second'),
     pytest.param(None, Optional[int], id='optional-none'),
     pytest.param(3, Optional[int], id='optional-value'),
-    pytest.param([1, None], list[Optional[int]], id='list-with-optional'),
+    pytest.param([1, None], list[int | None], id='list-with-optional'),
     pytest.param('a', Literal['a', 'b'], id='literal'),
     pytest.param([1], Sequence[int], id='abc-sequence'),
     pytest.param(len, Callable[[Any], int], id='callable'),
@@ -95,6 +97,7 @@ REJECTED = [
     pytest.param((1, 'a', 2), tuple[int, ...], id='wrong-variadic-member'),
     pytest.param([[1], ['a']], list[list[int]], id='nested-wrong'),
     pytest.param(1.5, Union[int, str], id='not-in-union'),
+    pytest.param(1.5, int | str, id='not-in-pep604-union'),
     pytest.param('c', Literal['a', 'b'], id='not-in-literal'),
     pytest.param(object(), HasName, id='does-not-satisfy-protocol'),
 ]

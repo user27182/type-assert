@@ -104,7 +104,10 @@ force-sort-within-sections = true
 required-imports = ['from __future__ import annotations']
 
 [tool.ruff.lint.per-file-ignores]
-'tests/*' = ['D103']
+'tests/*' = ['D102', 'D103']
+# `Union` and `Optional` here are runtime values handed to `assert_types`, not
+# annotations. Both spellings are worth covering, since users write both.
+'tests/test_assertions.py' = ['D102', 'D103', 'UP007', 'UP045']
 
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = true

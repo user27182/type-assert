@@ -150,7 +150,9 @@ class TestPyrightOutputParsing:
 
     def test_a_preamble_before_the_report_is_skipped(self):
         # The `pyright` distribution downloads node on first use and says so.
-        stdout = " * Install prebuilt node (26.8.1) ..... done.\n{'x86': False}\n{\n  \"a\": 1\n}\n"
+        stdout = (
+            ' * Install prebuilt node (26.8.1) ..... done.\n{\'x86\': False}\n{\n  "a": 1\n}\n'
+        )
         assert _extract_report(stdout) == {'a': 1}
 
     def test_no_report_at_all_returns_none(self):

@@ -207,9 +207,7 @@ class TestSkipping:
         assert case_file.unknown_skips(case_file.setup_namespace()) == ['gone()']
 
     def test_unknown_skips_are_listed_in_order(self, write):
-        body = (
-            "SKIP_RUNTIME = {'b()': 'x', 'a()': 'y'}\nassert_types(len([1]), int)\n"
-        )
+        body = "SKIP_RUNTIME = {'b()': 'x', 'a()': 'y'}\nassert_types(len([1]), int)\n"
         case_file = write(body)
         assert case_file.unknown_skips(case_file.setup_namespace()) == ['a()', 'b()']
 

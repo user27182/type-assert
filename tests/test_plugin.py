@@ -89,7 +89,9 @@ def test_a_wrong_runtime_value_fails_the_runtime_half(project):
 
 
 def test_an_error_outside_a_case_fails_the_setup_test(project):
-    source = 'from type_assert import assert_types\n\nBAD: int = "no"\nassert_types(len([1]), int)\n'
+    source = (
+        'from type_assert import assert_types\n\nBAD: int = "no"\nassert_types(len([1]), int)\n'
+    )
     result = project(source).runpytest()
     result.assert_outcomes(passed=2, failed=1)
     result.stdout.fnmatch_lines(['*::setup*'])
