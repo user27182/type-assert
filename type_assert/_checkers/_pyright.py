@@ -12,6 +12,22 @@ from ._base import CheckerError
 from ._base import Diagnostic
 
 
+def _extract_report(stdout: str) -> dict | None:
+    """Return the JSON report from pyright's output, or `None` if there is none.
+
+    The `pyright` distribution downloads its own copy of node on first use and
+    announces it on stdout, so the report is not always the whole of it.
+    """
+    for start, line in enumerate(stdout.splitlines(keepends=True)):
+        if line.startswith('{'):
+            offset = sum(len(previous) for previous in stdout.splitlines(keepends=True)[:start])
+            try:
+                return json.loads(stdout[offset:])
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
 class PyrightChecker(Checker):
     """Runs pyright and reads its JSON output."""
 
@@ -42,9 +58,8 @@ class PyrightChecker(Checker):
             msg = f'Could not run pyright: {error}'
             raise CheckerError(msg) from error
 
-        try:
-            report = json.loads(process.stdout)
-        except json.JSONDecodeError as error:
+        report = _extract_report(process.stdout)
+        if report is None:
             hint = ''
             if 'No module named pyright' in process.stderr:
                 hint = '\n\nInstall it with: pip install type-assert[pyright]'
@@ -52,7 +67,7 @@ class PyrightChecker(Checker):
                 f'pyright failed to run:\n{" ".join(args)}\n\n'
                 f'{process.stderr}{process.stdout}{hint}'
             )
-            raise CheckerError(msg) from error
+            raise CheckerError(msg)
 
         diagnostics: dict[Path, list[Diagnostic]] = {}
         for entry in report.get('generalDiagnostics', []):

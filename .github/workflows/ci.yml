@@ -51,7 +51,12 @@ jobs:
       with:
         enable-cache: false
     - run: uv sync --group dev --extra all --python ${{ matrix.python-version }}
-    - run: uv run pytest --cov --cov-report=xml
+      # Coverage has to start before pytest, since the plugin is imported by
+      # entry point before any pytest-cov hook would run.
+    - run: uv run coverage run -m pytest
+    - run: uv run coverage combine
+    - run: uv run coverage report --fail-under=95
+    - run: uv run coverage xml
     - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f   # v7.0.0
       if: matrix.os == 'ubuntu-latest'
       with:

@@ -47,7 +47,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from typeassert import assert_types
+from type_assert import assert_types
 
 
 def payload() -> str:
@@ -93,7 +93,7 @@ Both are supported and behave the same way from the outside. They do not always 
 the same type for the same expression, so a case file is written against one of them.
 
 `ty` is deliberately not supported yet: it is pre-1.0 and its output format is still
-moving. Adding a backend is a single module — see `typeassert/_checkers/`.
+moving. Adding a backend is a single module — see `type_assert/_checkers/`.
 
 ## Skipping a case at runtime
 

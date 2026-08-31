@@ -39,7 +39,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     """Register the two settings a project needs."""
     parser.addini(
         CASES_INI,
-        'Directory of typeassert case files, relative to the rootdir.',
+        'Directory of type_assert case files, relative to the rootdir.',
         default='',
     )
     parser.addini(
@@ -80,7 +80,7 @@ def _diagnostics(config: pytest.Config) -> dict[Path, list[Diagnostic]]:
         cached = checker.run(
             '.'.join(directory.relative_to(root).parts),
             root=root,
-            cache_dir=root / '.mypy_cache' / f'typeassert-{worker}',
+            cache_dir=root / '.mypy_cache' / f'type_assert-{worker}',
         )
         setattr(config, _DIAGNOSTICS, cached)
     return cached

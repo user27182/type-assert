@@ -54,7 +54,9 @@ class MypyChecker(Checker):
             hint = ''
             if 'No module named mypy' in process.stderr:
                 hint = '\n\nInstall it with: pip install type-assert[mypy]'
-            msg = f'mypy failed to run:\n{" ".join(args)}\n\n{process.stderr}{process.stdout}{hint}'
+            msg = (
+                f'mypy failed to run:\n{" ".join(args)}\n\n{process.stderr}{process.stdout}{hint}'
+            )
             raise CheckerError(msg)
 
         diagnostics: dict[Path, list[Diagnostic]] = {}

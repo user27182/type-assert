@@ -35,6 +35,8 @@ class Checker:
     #: Distribution to install to get it, when it is missing.
     distribution: str
 
-    def run(self, package: str, *, root: Path, cache_dir: Path | None) -> dict[Path, list[Diagnostic]]:
+    def run(
+        self, package: str, *, root: Path, cache_dir: Path | None
+    ) -> dict[Path, list[Diagnostic]]:
         """Type-check `package` from `root` and return its errors keyed by file."""
         raise NotImplementedError
