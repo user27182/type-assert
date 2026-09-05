@@ -3,6 +3,11 @@
 To a type checker `assert_types` is `typing_extensions.assert_type`; at runtime it
 is a real checker. See the module body for why that works.
 
+The runtime check is assignability, read strictly in two places where a declared
+type and a produced value drift apart in practice: a number has to be an instance
+of the numeric class named, so an `int` does not pass for `float`, and a NumPy
+array is checked as the array type it actually is, dtype and dimensions included.
+
 The expected type may be quoted, as annotations may. A checker reads the string as
 the type it names; at runtime the string is evaluated in the caller's namespace, so
 it means the same thing to both halves.
@@ -32,6 +37,8 @@ else:
     from pycroscope.runtime import has_relation
     from pycroscope.runtime import type_from_runtime
 
+    from ._exact import mismatch
+
     @functools.cache
     def _checker() -> Checker:
         """Return the shared checker, built on first use."""
@@ -49,18 +56,25 @@ else:
             relation = has_relation(
                 type_from_runtime(expected), KnownValue(value), Relation.ASSIGNABLE, checker
             )
+            if isinstance(relation, CanAssignError):
+                msg = (
+                    f'Runtime value of type {type(value).__name__!r} is not assignable '
+                    f'to the expected type:\n\t{expected}\n\n{relation.display(depth=0)}'
+                )
+                # An assertion that failed, not a caller passing the wrong kind of argument.
+                raise AssertionError(msg)  # noqa: TRY004
+            problem = mismatch(value, expected, checker=checker)
         finally:
             cache = checker.get_relation_cache()
             if cache is not None:
                 cache.clear()
 
-        if isinstance(relation, CanAssignError):
+        if problem is not None:
             msg = (
-                f'Runtime value of type {type(value).__name__!r} is not assignable '
-                f'to the expected type:\n\t{expected}\n\n{relation.display(depth=0)}'
+                f'Runtime value of type {type(value).__name__!r} does not have the '
+                f'expected type:\n\t{expected}\n\n{problem}'
             )
-            # An assertion that failed, not a caller passing the wrong kind of argument.
-            raise AssertionError(msg)  # noqa: TRY004
+            raise AssertionError(msg)
         return value
 
     def _resolve(expected: str, frame: FrameType) -> object:

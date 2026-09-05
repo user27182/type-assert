@@ -88,6 +88,20 @@ def test_a_wrong_runtime_value_fails_the_runtime_half(project):
     result.assert_outcomes(passed=3)
 
 
+def test_a_value_the_type_system_would_promote_fails_the_runtime_half(project):
+    # Returning an int for a declared float satisfies every checker, so only the
+    # runtime half can say that the declaration does not match what is produced.
+    source = (
+        'from type_assert import assert_types\n\n'
+        'def rounded() -> float:\n'
+        '    return 1\n\n'
+        'assert_types(rounded(), float)\n'
+    )
+    result = project(source).runpytest()
+    result.assert_outcomes(passed=2, failed=1)
+    result.stdout.fnmatch_lines(['*runtime*', '*is int 1, not float*'])
+
+
 def test_an_error_outside_a_case_fails_the_setup_test(project):
     source = (
         'from type_assert import assert_types\n\nBAD: int = "no"\nassert_types(len([1]), int)\n'
