@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 import time
 from typing import TYPE_CHECKING
-from typing import Callable
 
 from ._checkers import CheckerError
 from ._checkers import Diagnostic
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import pytest
 
 #: How long a worker waits for whichever worker is running the checker.

@@ -4,7 +4,7 @@ requires = ['setuptools>=64', 'setuptools_scm>=8']
 
 [dependency-groups]
 dev = ['pre-commit', 'pytest-cov', { include-group = 'test' }]
-test = ['mypy', 'numpy', 'pyrefly', 'pyright', 'pytest']
+test = ['mypy', 'numpy', 'pyrefly', 'pyright', 'pytest', 'pytest-xdist']
 
 [project]
 authors = [{ name = 'user27182' }]
