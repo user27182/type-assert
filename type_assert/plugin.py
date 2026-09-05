@@ -23,6 +23,7 @@ from ._cases import CaseSkipped
 from ._cases import collect_case_file
 from ._checkers import CHECKERS
 from ._checkers import get_checker
+from ._share import run_once
 
 if TYPE_CHECKING:
     from ._cases import Case
@@ -124,15 +125,17 @@ def _diagnostics(config: pytest.Config, checker_name: str) -> dict[Path, list[Di
         assert directory is not None  # only reachable from a collected case file
         root = Path(config.rootpath)
         checker = get_checker(checker_name)
-        # A cache directory per checker and per xdist worker: the run is cheap once
-        # warm, and sharing one between concurrent workers is what makes it stale.
-        worker = getattr(config, 'workerinput', {}).get('workerid', 'master')
-        cache[checker_name] = checker.run(
-            '.'.join(directory.relative_to(root).parts),
-            root=root,
-            cache_dir=root / '.mypy_cache' / f'type_assert-{checker_name}-{worker}',
-            extra_args=[str(arg) for arg in config.getini(checker_args_ini(checker_name))],
-        )
+
+        def run() -> dict[Path, list[Diagnostic]]:
+            """Type-check the cases with this checker."""
+            return checker.run(
+                '.'.join(directory.relative_to(root).parts),
+                root=root,
+                cache_dir=root / '.mypy_cache' / f'type_assert-{checker_name}',
+                extra_args=[str(arg) for arg in config.getini(checker_args_ini(checker_name))],
+            )
+
+        cache[checker_name] = run_once(config, checker_name, run)
     return cache[checker_name]
 
 
