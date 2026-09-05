@@ -365,3 +365,12 @@ class TestCheckerConfiguration:
         directory.joinpath('sample.py').write_text(CLEAN, encoding='utf-8')
         result = pytester.runpytest()
         result.stdout.fnmatch_lines(['*mypy failed to run*'])
+
+
+def test_the_checker_runs_once_across_xdist_workers(project):
+    # Each worker would otherwise type-check the cases again, into a cache of its own.
+    pytester = project(CLEAN)
+    result = pytester.runpytest_subprocess('-p', 'xdist', '-n', '2')
+    result.assert_outcomes(passed=5)
+    caches = list((pytester.path / '.mypy_cache').glob('type_assert-*'))
+    assert [path.name for path in caches] == ['type_assert-mypy']
