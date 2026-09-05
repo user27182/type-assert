@@ -85,12 +85,32 @@ def cases_dir(config: pytest.Config) -> Path | None:
     return (Path(config.rootpath) / configured).resolve()
 
 
+def _is_case_file(file_path: Path, config: pytest.Config) -> bool:
+    """Tell whether `file_path` is a `.py` file in the configured cases directory."""
+    directory = cases_dir(config)
+    return directory is not None and file_path.suffix == '.py' and file_path.parent == directory
+
+
 def pytest_collect_file(file_path: Path, parent: pytest.Collector):
     """Collect a `.py` file in the configured cases directory as a case file."""
-    directory = cases_dir(parent.config)
-    if directory is None or file_path.suffix != '.py' or file_path.parent != directory:
+    # A path named on the command line reaches `pytest_pycollect_makemodule` below,
+    # which is where pytest's own Python collector would otherwise pick it up.
+    if not _is_case_file(file_path, parent.config) or parent.session.isinitpath(file_path):
         return None
     return CaseFileCollector.from_parent(parent, path=file_path)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pycollect_makemodule(module_path: Path, parent: pytest.Collector):
+    """Collect a case file named on the command line as a case file, not a module.
+
+    pytest collects any `.py` path it is given explicitly as a test module whatever
+    its name, which would import the case file and run every assertion at import.
+    Answering this hook first hands the file to the case file collector instead.
+    """
+    if not _is_case_file(module_path, parent.config):
+        return None
+    return CaseFileCollector.from_parent(parent, path=module_path)
 
 
 def _diagnostics(config: pytest.Config, checker_name: str) -> dict[Path, list[Diagnostic]]:

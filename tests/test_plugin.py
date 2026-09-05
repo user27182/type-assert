@@ -164,6 +164,20 @@ def test_a_quoted_type_only_a_checker_can_build_is_checked_statically(project, c
     result.stdout.fnmatch_lines(['*cannot be built at runtime*'])
 
 
+def test_a_case_file_named_on_the_command_line_is_collected_once_as_cases(project):
+    # pytest collects an explicitly named `.py` file as a test module whatever its
+    # name; importing this one would run the quoted assertion at import and fail.
+    result = project(QUOTED_NEVER).runpytest('cases/sample.py', '-rs')
+    result.assert_outcomes(passed=2, skipped=1, errors=0)
+    result.stdout.fnmatch_lines(['*cannot be built at runtime*'])
+
+
+def test_a_case_file_named_on_the_command_line_yields_the_same_tests(project):
+    result = project(CLEAN).runpytest('cases/sample.py', '--collect-only', '-q')
+    result.stdout.fnmatch_lines(['*::setup', '*len([[]1[]]) -> int [[]runtime[]]'])
+    assert result.stdout.str().count('[runtime]') == 2
+
+
 def test_a_quoted_type_the_runtime_can_build_is_held_to_by_both_halves(project):
     source = (
         'from type_assert import assert_types\n\n'
