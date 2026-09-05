@@ -82,6 +82,20 @@ it catches a `None` at any position in a `list[int]`, not only the first element
 
 Writing the type once covers both halves, and there is no way for them to drift apart.
 
+## What each half checks
+
+The two halves are deliberately not equally strict. The checker's `assert_type` is
+exact: the inferred type must be the expected type, so `object` fails for an `int` and
+`list[float]` fails for a `list[int]`. The runtime check is assignability, the relation
+the type system itself uses for a value: an instance of a subclass passes for its base
+class, an `int` passes for `float`, and every element of a container is held to the
+same rule.
+
+So an expected type that is wrong but assignable — a supertype, or `float` for a value
+that turns out to be an `int` — fails only the static half. That is the intended
+division of labour: the checker guards what was declared, the run guards what was
+produced, and a case passes only when the declaration is exact and the value honours it.
+
 ## Types that only a checker can spell
 
 Some types have no runtime spelling: a name imported under `TYPE_CHECKING`, or a class
@@ -153,6 +167,18 @@ Only the runtime half is skipped; the checker still checks the case. The mapping
 after the file's setup has run, so making an entry conditional is ordinary Python. An
 entry naming an expression that no case makes fails the file's `setup` test, so a skip
 cannot quietly outlive the case it was written for.
+
+## Running the cases on their own
+
+Case files collect like any other test file, so a job can run just them:
+
+```bash
+pytest tests/typing/cases --no-cov
+```
+
+pytest-cov's `--no-cov` matters when the project sets a coverage threshold in
+`addopts`: the cases exercise only what they call, so `--cov-fail-under` would fail a
+run that is only about types. Runs of the whole suite are unaffected.
 
 ## License
 

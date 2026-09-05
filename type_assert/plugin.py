@@ -46,9 +46,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addini(
         CHECKERS_INI,
         'Type checkers to check the cases with, whitespace separated. Any of: '
-        'mypy, pyright. Each one gets a static test of its own per case, so a '
-        "case can be held to more than one checker's inference. Defaults to "
-        f'{" ".join(DEFAULT_CHECKERS)}.',
+        f'{", ".join(sorted(CHECKERS))}. Each one gets a static test of its own per '
+        "case, so a case can be held to more than one checker's inference. Defaults "
+        f'to {" ".join(DEFAULT_CHECKERS)}.',
         type='args',
         default=list(DEFAULT_CHECKERS),
     )
