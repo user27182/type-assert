@@ -18,6 +18,8 @@ from typing import Protocol
 from typing import Union
 from typing import runtime_checkable
 
+import numpy as np
+import numpy.typing as npt
 import pytest
 
 from type_assert import assert_types
@@ -103,9 +105,108 @@ REJECTED = [
 ]
 
 
+# Assignable to the type system, and rejected here all the same.
+PROMOTED = [
+    pytest.param(1, float, id='int-is-not-float'),
+    pytest.param(True, float, id='bool-is-not-float'),
+    pytest.param(True, int, id='bool-is-not-int'),
+    pytest.param(1, complex, id='int-is-not-complex'),
+    pytest.param(1.5, complex, id='float-is-not-complex'),
+    pytest.param([1, 2], list[float], id='list-of-int-is-not-list-of-float'),
+    pytest.param([1.5, 1], list[float], id='promoted-element-last'),
+    pytest.param((1.5, 1), tuple[float, float], id='fixed-tuple-member'),
+    pytest.param((1.5, 1), tuple[float, ...], id='variadic-tuple-member'),
+    pytest.param({1.5, 1}, set[float], id='set-member'),
+    pytest.param({'a': 1}, dict[str, float], id='dict-value'),
+    pytest.param({1: 'a'}, dict[float, str], id='dict-key'),
+    pytest.param([[1.5], [1]], list[list[float]], id='nested'),
+    pytest.param([1], Sequence[float], id='abc-sequence'),
+    pytest.param(1, Optional[float], id='optional'),
+    pytest.param(1, float | None, id='optional-pep604'),
+    pytest.param(1, float | str, id='no-union-member-fits-exactly'),
+    pytest.param([1.5, 1], list[float | str], id='union-element'),
+]
+
+# The stricter reading still lets through what it should.
+STILL_ACCEPTED = [
+    pytest.param(1.5, float, id='float-is-float'),
+    pytest.param(1, int, id='int-is-int'),
+    pytest.param(True, bool, id='bool-is-bool'),
+    pytest.param(1j, complex, id='complex-is-complex'),
+    pytest.param(1, float | int, id='union-names-the-class'),
+    pytest.param(1, int | float, id='union-in-either-order'),
+    pytest.param(None, float | None, id='none-for-optional-float'),
+    pytest.param([1.5, 2.5], list[float], id='list-of-float'),
+    pytest.param((1.5, 1), tuple[float, int], id='fixed-tuple-as-declared'),
+    pytest.param({'a': 1.5}, dict[str, float], id='dict-as-declared'),
+    pytest.param([[1.5]], list[list[float]], id='nested-as-declared'),
+    pytest.param(np.float64(1.5), float, id='numpy-float64-is-a-float'),
+    pytest.param(1, Any, id='any'),
+    pytest.param(1, object, id='object'),
+    pytest.param('a', Literal['a', 'b'], id='literal'),
+]
+
+
 @pytest.mark.parametrize(('value', 'expected'), ACCEPTED)
 def test_accepts(value, expected):
     assert_types(value, expected)
+
+
+@pytest.mark.parametrize(('value', 'expected'), PROMOTED)
+def test_rejects_what_the_type_system_would_merely_promote(value, expected):
+    with pytest.raises(AssertionError, match='does not have the expected type'):
+        assert_types(value, expected)
+
+
+@pytest.mark.parametrize(('value', 'expected'), STILL_ACCEPTED)
+def test_the_stricter_reading_accepts_what_is_declared(value, expected):
+    assert_types(value, expected)
+
+
+def test_the_stricter_failure_names_where_the_problem_is():
+    with pytest.raises(AssertionError) as error:
+        assert_types({'a': [1.5, 1]}, dict[str, list[float]])
+    assert "value['a'][1] is int 1, not float" in str(error.value)
+
+
+class TestArrays:
+    """A NumPy array is checked as the array type it is, dtype and dimensions included."""
+
+    def test_the_dtype_is_checked(self):
+        assert_types(np.array([1.0]), npt.NDArray[np.float64])
+        with pytest.raises(AssertionError, match='dtype float64'):
+            assert_types(np.array([1.0]), npt.NDArray[np.int64])
+
+    def test_a_union_of_dtypes_accepts_each_member(self):
+        assert_types(np.array([1], dtype=np.float32), npt.NDArray[np.float32 | np.float64])
+        with pytest.raises(AssertionError, match='does not have the expected type'):
+            assert_types(np.array([1]), npt.NDArray[np.float32 | np.float64])
+
+    def test_a_union_of_array_types_accepts_each_member(self):
+        assert_types(np.array([1]), npt.NDArray[np.float64] | npt.NDArray[np.int64])
+
+    def test_the_number_of_dimensions_is_checked(self):
+        matrix = np.ndarray[tuple[int, int], np.dtype[np.float64]]
+        assert_types(np.zeros((2, 2)), matrix)
+        with pytest.raises(AssertionError, match='1 dimension'):
+            assert_types(np.zeros(2), matrix)
+
+    def test_a_scalar_array_has_no_dimensions(self):
+        assert_types(np.array(1.0), np.ndarray[tuple[()], np.dtype[np.float64]])
+        assert_types(np.array(1.0), npt.NDArray[np.float64])
+
+    def test_an_unparametrised_array_type_accepts_any_array(self):
+        assert_types(np.array([1.0]), np.ndarray)
+
+    def test_arrays_inside_containers_are_checked(self):
+        assert_types([np.array([1])], list[npt.NDArray[np.int64]])
+        with pytest.raises(AssertionError, match=r'value\[0\] is an array of dtype float64'):
+            assert_types([np.array([1.0])], list[npt.NDArray[np.int64]])
+
+    def test_a_numpy_scalar_is_not_a_python_int(self):
+        # Not a promotion: np.int64 does not subclass int, so pycroscope rejects it.
+        with pytest.raises(AssertionError, match='not assignable'):
+            assert_types(np.int64(1), int)
 
 
 @pytest.mark.parametrize(('value', 'expected'), REJECTED)

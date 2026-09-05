@@ -84,17 +84,28 @@ Writing the type once covers both halves, and there is no way for them to drift 
 
 ## What each half checks
 
-The two halves are deliberately not equally strict. The checker's `assert_type` is
-exact: the inferred type must be the expected type, so `object` fails for an `int` and
-`list[float]` fails for a `list[int]`. The runtime check is assignability, the relation
-the type system itself uses for a value: an instance of a subclass passes for its base
-class, an `int` passes for `float`, and every element of a container is held to the
-same rule.
+The checker's `assert_type` is exact: the inferred type must be the expected type, so
+`object` fails for an `int` and `list[float]` fails for a `list[int]`. The runtime
+check is assignability, the relation the type system itself uses for a value: an
+instance of a subclass passes for its base class, and every element of a container is
+held to the same rule.
 
-So an expected type that is wrong but assignable — a supertype, or `float` for a value
-that turns out to be an `int` — fails only the static half. That is the intended
-division of labour: the checker guards what was declared, the run guards what was
-produced, and a case passes only when the declaration is exact and the value honours it.
+Two things are read more strictly than the type system would, because they are where a
+declared type and a produced value drift apart in practice:
+
+- A number has to be an instance of the numeric class named. An `int` does not pass for
+  `float`, a `bool` does not pass for `int`, and `[1, 2]` does not pass for
+  `list[float]`. A function that really returns either should say `float | int`.
+- A NumPy array is checked as the array type it actually is, dtype and number of
+  dimensions included, so a `float64` array does not pass for `NDArray[np.int64]`
+  and a 1-D array does not pass for `ndarray[tuple[int, int], ...]`.
+
+Both apply at any depth inside lists, tuples, sets and dicts. What the runtime half
+cannot check is a type argument the value does not carry: a `Box[int]` is only a `Box`
+at runtime, and there the checker is the sole authority. A supertype still fails only
+the static half, which is the intended division of labour: the checker guards what was
+declared, the run guards what was produced, and a case passes only when the declaration
+is exact and the value honours it.
 
 ## Types that only a checker can spell
 
