@@ -96,6 +96,37 @@ that turns out to be an `int` — fails only the static half. That is the intend
 division of labour: the checker guards what was declared, the run guards what was
 produced, and a case passes only when the declaration is exact and the value honours it.
 
+## Types that only a checker can spell
+
+Some types have no runtime spelling: a name imported under `TYPE_CHECKING`, or a class
+a checker treats as generic that cannot be subscripted at runtime, such as
+`np.dtype[np.generic[object]]`. Write the type as a string, the way an annotation can be
+quoted:
+
+```python
+assert_types(dtype_of(array), 'np.dtype[np.generic[object]]')
+```
+
+The checker reads the string as the type it names and holds the case to it exactly. At
+runtime the string is evaluated in the case file's namespace. When that succeeds the
+value is checked against it as usual, so a wrong quoted type still fails both halves.
+When the type cannot be built, the runtime half is skipped with the reason, since there
+is nothing to check the value against.
+
+To keep a runtime check as well, name the type under `TYPE_CHECKING` and give it a
+runtime stand-in:
+
+```python
+if TYPE_CHECKING:
+    DType = np.dtype[np.generic[object]]
+else:
+    DType = np.dtype
+
+assert_types(dtype_of(array), DType)
+```
+
+The checker still sees the exact type; the value is checked against the stand-in.
+
 ## Choosing a checker
 
 ```toml

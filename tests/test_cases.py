@@ -163,6 +163,52 @@ class TestMalformed:
         assert case_file.cases == ()
 
 
+class TestQuotedTypes:
+    """A quoted expected type reads like an unquoted one, and may exist only for a checker."""
+
+    NEVER = (
+        'from typing import TYPE_CHECKING\n\n'
+        'if TYPE_CHECKING:\n'
+        '    from typing_extensions import Never\n\n\n'
+        'def empty() -> list[Never]:\n'
+        '    return []\n\n\n'
+        "assert_types(empty(), 'list[Never]')\n"
+    )
+
+    def test_the_id_drops_the_quotes(self, write):
+        case_file = write("assert_types(len([1]), 'int')\n")
+        assert case_file.cases[0].id == 'len([1]) -> int'
+        assert case_file.cases[0].quoted
+
+    def test_an_unquoted_type_is_not_marked_quoted(self, write):
+        case_file = write('assert_types(len([1]), int)\n')
+        assert not case_file.cases[0].quoted
+
+    def test_the_spelling_inside_the_quotes_is_normalised(self, write):
+        case_file = write("assert_types(len([1]), 'list[ int ]')\n")
+        assert case_file.cases[0].expected == 'list[int]'
+
+    def test_a_type_that_exists_at_runtime_is_checked(self, write):
+        case_file = write("assert_types(len([1]), 'str')\n")
+        with pytest.raises(AssertionError, match='not assignable'):
+            case_file.run(case_file.cases[0])
+
+    def test_a_type_that_cannot_be_built_skips_the_runtime_half(self, write):
+        case_file = write(self.NEVER)
+        with pytest.raises(CaseSkipped, match=r"'list\[Never\]' cannot be built at runtime"):
+            case_file.run(case_file.cases[0])
+
+    def test_the_skip_names_the_error(self, write):
+        case_file = write(self.NEVER)
+        with pytest.raises(CaseSkipped, match='NameError'):
+            case_file.run(case_file.cases[0])
+
+    def test_a_quoted_type_that_is_not_an_expression_is_malformed(self, write):
+        case_file = write("assert_types(len([1]), 'not a type')\n")
+        assert case_file.error is not None
+        assert 'not a type expression' in case_file.error
+
+
 class TestSkipping:
     """`SKIP_RUNTIME` takes the runtime half out, and only that."""
 

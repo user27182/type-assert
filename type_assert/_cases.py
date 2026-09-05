@@ -32,6 +32,9 @@ class Case:
     expression: str
     expected: str
     code: CodeType
+    #: Whether the expected type was written as a string. A checker reads it the same
+    #: way; at runtime it is built in the file's namespace, which may not be possible.
+    quoted: bool = False
 
     @property
     def id(self) -> str:
@@ -68,7 +71,7 @@ class CaseFile:
         cannot observe another's state, and reordering the file changes nothing.
         """
         namespace = self.setup_namespace()
-        reason = skip_reason(namespace, case)
+        reason = skip_reason(namespace, case) or unbuildable_reason(namespace, case)
         if reason is not None:
             raise CaseSkipped(reason)
         exec(case.code, namespace)  # noqa: S102
@@ -90,6 +93,26 @@ def skip_reason(namespace: dict[str, Any], case: Case) -> str | None:
     """
     declared = namespace.get(SKIP_RUNTIME) or {}
     return declared.get(case.expression) or None
+
+
+def unbuildable_reason(namespace: dict[str, Any], case: Case) -> str | None:
+    """Return why `case`'s quoted type cannot be built at runtime, if it cannot.
+
+    A type that exists only for a checker -- a name imported under `TYPE_CHECKING`,
+    a class that cannot be subscripted at runtime -- can still be written as a
+    string. The checker holds the case to it; the runtime half has nothing to check
+    against, so it is skipped rather than failed.
+    """
+    if not case.quoted:
+        return None
+    try:
+        eval(case.expected, namespace)
+    except Exception as error:  # noqa: BLE001
+        return (
+            f'the expected type {case.expected!r} cannot be built at runtime '
+            f'({type(error).__name__}: {error}), so only a checker can check this case'
+        )
+    return None
 
 
 def _case_call(node: ast.AST) -> ast.Call | None:
@@ -157,14 +180,16 @@ def _parse_case_file(path: Path) -> CaseFile:
         if len(call.args) != 2:
             msg = f'{path.name}:{node.lineno}: `{ASSERTION}` takes an expression and a type.'
             raise CaseError(msg)
+        expected, quoted = _expected_type(call.args[1], path, node.lineno)
         module = ast.Module(body=[node], type_ignores=[])
         cases.append(
             Case(
                 path=path,
                 lines=frozenset(range(node.lineno, (node.end_lineno or node.lineno) + 1)),
                 expression=ast.unparse(call.args[0]),
-                expected=ast.unparse(call.args[1]),
+                expected=expected,
                 code=compile(ast.fix_missing_locations(module), str(path), 'exec'),
+                quoted=quoted,
             )
         )
 
@@ -175,6 +200,22 @@ def _parse_case_file(path: Path) -> CaseFile:
         setup_lines=frozenset(range(1, len(source.splitlines()) + 1)) - case_lines,
         setup_code=setup_code,
     )
+
+
+def _expected_type(node: ast.expr, path: Path, lineno: int) -> tuple[str, bool]:
+    """Return the expected type as written, unquoted if it was a string, and whether it was.
+
+    Both spellings normalise to the same text, so a case reads the same in a test id
+    whichever way it was written.
+    """
+    if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        return ast.unparse(node), False
+    try:
+        tree = ast.parse(node.value, mode='eval')
+    except SyntaxError:
+        msg = f'{path.name}:{lineno}: the quoted type {node.value!r} is not a type expression.'
+        raise CaseError(msg) from None
+    return ast.unparse(tree.body), True
 
 
 def collect_cases(directory: Path) -> list[CaseFile]:

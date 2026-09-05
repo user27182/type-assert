@@ -114,6 +114,29 @@ def test_rejects(value, expected):
         assert_types(value, expected)
 
 
+class TestQuotedTypes:
+    """A type written as a string is built where the assertion is made."""
+
+    def test_a_quoted_type_is_checked_rather_than_taken_for_any(self):
+        assert_types(1, 'int')
+        with pytest.raises(AssertionError, match='not assignable'):
+            assert_types('x', 'int')
+
+    def test_a_quoted_container_type_is_walked(self):
+        with pytest.raises(AssertionError, match='not assignable'):
+            assert_types([1, 'a'], 'list[int]')
+
+    def test_names_local_to_the_caller_are_visible(self):
+        class Local:
+            """Exists only inside this test."""
+
+        assert_types(Local(), 'Local')
+
+    def test_a_type_that_cannot_be_built_is_an_error_not_a_pass(self):
+        with pytest.raises(TypeError, match=r'cannot be built at runtime \(NameError'):
+            assert_types(1, 'NoSuchName')
+
+
 def test_returns_the_value_unchanged():
     value = [1, 2]
     assert assert_types(value, list[int]) is value

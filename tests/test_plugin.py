@@ -132,6 +132,35 @@ def test_a_skipped_case_skips_only_its_runtime_half(project):
     result.stdout.fnmatch_lines(['*a reason*'])
 
 
+QUOTED_NEVER = (
+    'from typing import TYPE_CHECKING\n\n'
+    'from type_assert import assert_types\n\n'
+    'if TYPE_CHECKING:\n'
+    '    from typing_extensions import Never\n\n\n'
+    'def empty() -> list[Never]:\n'
+    '    return []\n\n\n'
+    "assert_types(empty(), 'list[Never]')\n"
+)
+
+
+@pytest.mark.parametrize('checker', ['mypy', 'pyright'])
+def test_a_quoted_type_only_a_checker_can_build_is_checked_statically(project, checker):
+    result = project(QUOTED_NEVER, checkers=checker).runpytest('-rs')
+    result.assert_outcomes(passed=2, skipped=1)
+    result.stdout.fnmatch_lines(['*cannot be built at runtime*'])
+
+
+def test_a_quoted_type_the_runtime_can_build_is_held_to_by_both_halves(project):
+    source = (
+        'from type_assert import assert_types\n\n'
+        "assert_types(len([1]), 'int')\n"
+        "assert_types(len([1]), 'str')\n"
+    )
+    result = project(source).runpytest()
+    # The right type passes both halves and the wrong one fails both: quoting weakens neither.
+    result.assert_outcomes(passed=3, failed=2)
+
+
 def test_a_skip_naming_no_case_fails_the_setup_test(project):
     source = (
         'from type_assert import assert_types\n\n'
