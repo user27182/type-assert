@@ -36,9 +36,9 @@ def project(pytester, monkeypatch):
             pytest=f'[pytest]\n{settings}type_assert_checkers = {checkers}\n',
         )
         if cases is not None:
-            directory = pytester.path / cases
-            directory.mkdir(parents=True, exist_ok=True)
-            directory.joinpath(name).write_text(source, encoding='utf-8')
+            path = pytester.path / cases / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source, encoding='utf-8')
         return pytester
 
     return _project
@@ -170,6 +170,17 @@ def test_a_case_file_named_on_the_command_line_is_collected_once_as_cases(projec
     result = project(QUOTED_NEVER).runpytest('cases/sample.py', '-rs')
     result.assert_outcomes(passed=2, skipped=1, errors=0)
     result.stdout.fnmatch_lines(['*cannot be built at runtime*'])
+
+
+@pytest.mark.parametrize('checker', ['mypy', 'pyright'])
+def test_a_case_file_in_a_subdirectory_is_collected_and_checked(project, checker):
+    # The wrong type is what proves the checker was pointed at the subdirectory too.
+    source = CLEAN.replace('assert_types(len([1]), int)', 'assert_types(len([1]), str)')
+    result = project(source, checkers=checker, name='core/sample.py').runpytest('-q')
+    result.assert_outcomes(passed=3, failed=2)
+    result.stdout.fnmatch_lines(
+        [f'*cases/core/sample.py::len([[]1[]]) -> str [[]static: {checker}[]]*']
+    )
 
 
 def test_a_case_file_named_on_the_command_line_yields_the_same_tests(project):

@@ -41,7 +41,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     """Register the settings a project needs."""
     parser.addini(
         CASES_INI,
-        'Directory of type_assert case files, relative to the rootdir.',
+        'Directory of type_assert case files, subdirectories included, relative to the rootdir.',
         default='',
     )
     parser.addini(
@@ -87,9 +87,9 @@ def cases_dir(config: pytest.Config) -> Path | None:
 
 
 def _is_case_file(file_path: Path, config: pytest.Config) -> bool:
-    """Tell whether `file_path` is a `.py` file in the configured cases directory."""
+    """Tell whether `file_path` is a `.py` file under the configured cases directory."""
     directory = cases_dir(config)
-    return directory is not None and file_path.suffix == '.py' and file_path.parent == directory
+    return directory is not None and file_path.suffix == '.py' and directory in file_path.parents
 
 
 def pytest_collect_file(file_path: Path, parent: pytest.Collector):

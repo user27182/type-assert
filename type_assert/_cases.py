@@ -219,5 +219,5 @@ def _expected_type(node: ast.expr, path: Path, lineno: int) -> tuple[str, bool]:
 
 
 def collect_cases(directory: Path) -> list[CaseFile]:
-    """Parse every case file in `directory`."""
-    return [collect_case_file(path) for path in sorted(directory.glob('*.py'))]
+    """Parse every case file in `directory`, subdirectories included."""
+    return [collect_case_file(path) for path in sorted(directory.rglob('*.py'))]

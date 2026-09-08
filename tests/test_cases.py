@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from type_assert import CaseSkipped
@@ -86,6 +88,14 @@ def test_collect_cases_reads_a_directory_in_order(tmp_path):
 
 def test_collect_cases_on_an_empty_directory(tmp_path):
     assert collect_cases(tmp_path) == []
+
+
+def test_collect_cases_descends_into_subdirectories(tmp_path):
+    (tmp_path / 'core').mkdir()
+    for name in ('z.py', 'core/a.py'):
+        (tmp_path / name).write_text(IMPORT + 'assert_types(1, int)\n', encoding='utf-8')
+    collected = [case_file.path.relative_to(tmp_path) for case_file in collect_cases(tmp_path)]
+    assert collected == [Path('core/a.py'), Path('z.py')]
 
 
 class TestRunning:
