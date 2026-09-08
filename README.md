@@ -37,6 +37,9 @@ Put a directory of case files somewhere in your test tree and point the plugin a
 type_assert_cases = 'tests/typing/cases'
 ```
 
+Every `.py` file under that directory is a case file, subdirectories included, so cases
+can be grouped the way the package they exercise is.
+
 A case file is an ordinary Python module. Every top-level `assert_types` call is a case;
 everything else — imports, helpers, constants — is setup shared by the cases in that
 file:
