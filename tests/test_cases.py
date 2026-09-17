@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from type_assert import CaseError
 from type_assert import CaseSkipped
 from type_assert import collect_case_file
 from type_assert import collect_cases
@@ -171,6 +172,11 @@ class TestMalformed:
         case_file = collect_case_file(tmp_path / 'absent.py')
         assert case_file.error is not None
         assert case_file.cases == ()
+
+    def test_a_file_that_did_not_parse_has_no_setup_to_run(self, write):
+        case_file = write('def broken(\n')
+        with pytest.raises(CaseError, match='did not parse'):
+            case_file.setup_namespace()
 
 
 class TestQuotedTypes:

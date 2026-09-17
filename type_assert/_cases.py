@@ -58,7 +58,14 @@ class CaseFile:
         return self.path.name
 
     def setup_namespace(self) -> dict[str, Any]:
-        """Execute this file's setup and return the namespace it produced."""
+        """Execute this file's setup and return the namespace it produced.
+
+        A file that did not parse carries its reason in `error` and has no setup to
+        run, so callers check that first; asking anyway is a mistake worth naming.
+        """
+        if self.setup_code is None:
+            msg = f'{self.name} did not parse, so it has no setup to run: {self.error}'
+            raise CaseError(msg)
         namespace: dict[str, Any] = {'__name__': self.path.stem, '__file__': str(self.path)}
         # Running the case file's own code is the point of the framework.
         exec(self.setup_code, namespace)  # noqa: S102
