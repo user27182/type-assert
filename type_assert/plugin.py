@@ -18,7 +18,6 @@ from pathlib import Path
 import traceback
 from typing import TYPE_CHECKING
 
-from _pytest.outcomes import OutcomeException
 import pytest
 
 from ._cases import CaseSkipped
@@ -37,6 +36,10 @@ CHECKERS_INI = 'type_assert_checkers'
 DEFAULT_CHECKERS = ('mypy',)
 
 _DIAGNOSTICS = '_type_assert_diagnostics'
+
+#: What pytest's own outcome helpers raise, reached through the public functions
+#: that raise them rather than through the module they are defined in.
+_OUTCOMES = (pytest.fail.Exception, pytest.skip.Exception, pytest.xfail.Exception)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -201,7 +204,7 @@ class _Item(pytest.Item):
         belong to pytest, pluggy and this plugin. None of them tell the reader
         anything, and there are enough of them to bury the assertion that failed.
         """
-        if isinstance(excinfo.value, OutcomeException):
+        if isinstance(excinfo.value, _OUTCOMES):
             # `pytest.fail(..., pytrace=False)`: already a plain message.
             return super().repr_failure(excinfo, style)
 
