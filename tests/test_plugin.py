@@ -385,3 +385,52 @@ def test_the_checker_runs_once_across_xdist_workers(project):
     result.assert_outcomes(passed=5)
     caches = list((pytester.path / '.mypy_cache').glob('type_assert-*'))
     assert [path.name for path in caches] == ['type_assert-mypy']
+
+
+RAISES = """\
+from type_assert import assert_types
+
+assert_types(int('nope'), int)
+"""
+
+WRONG_TYPE = """\
+from type_assert import assert_types
+
+assert_types(len([1]), str)
+"""
+
+BROKEN_SETUP = """\
+from type_assert import assert_types
+
+VALUE: int = int('nope')
+
+assert_types(VALUE, int)
+"""
+
+
+def test_a_case_that_raises_reports_the_case_not_the_plugin(project):
+    result = project(RAISES).runpytest()
+    report = '\n'.join(result.outlines)
+    assert 'Running this raised ValueError' in report
+    assert "sample.py:3: assert_types(int('nope'), int)" in report
+    # The frames between pytest and the case file say nothing about the case.
+    assert '_pytest/runner.py' not in report
+    assert '_hookexec' not in report
+
+
+def test_a_failed_assertion_reports_the_expected_and_actual_types(project):
+    result = project(WRONG_TYPE).runpytest()
+    report = '\n'.join(result.outlines)
+    assert 'len([1]) -> str' in report
+    assert "Runtime value of type 'int'" in report
+    assert '_pytest/runner.py' not in report
+    assert '_hookexec' not in report
+
+
+def test_a_setup_that_raises_reports_the_line_it_raised_on(project):
+    result = project(BROKEN_SETUP).runpytest()
+    report = '\n'.join(result.outlines)
+    assert 'Running this raised ValueError' in report
+    assert 'sample.py:3:' in report
+    assert '_pytest/runner.py' not in report
+    assert '_hookexec' not in report

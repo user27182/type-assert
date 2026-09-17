@@ -203,6 +203,31 @@ class TestArrays:
         with pytest.raises(AssertionError, match=r'value\[0\] is an array of dtype float64'):
             assert_types([np.array([1.0])], list[npt.NDArray[np.int64]])
 
+    def test_a_dtype_named_by_its_concrete_class_is_accepted(self):
+        # `numpy.dtypes` names each dtype as a class of its own, which an array type
+        # may use in place of `dtype[<scalar>]`.
+        assert_types(np.arange(3, dtype=np.int8), np.ndarray[tuple[int], np.dtypes.Int8DType])
+        with pytest.raises(AssertionError, match='dtype int8'):
+            assert_types(
+                np.arange(3, dtype=np.int8), np.ndarray[tuple[int], np.dtypes.Float64DType]
+            )
+
+    def test_a_dtype_with_no_scalar_type_is_accepted(self):
+        # A variable-width string dtype cannot be rebuilt from a scalar type, so it
+        # can only be named by its class.
+        array = np.array(['a', 'bc'], dtype=np.dtypes.StringDType())
+        assert_types(array, np.ndarray[tuple[int], np.dtypes.StringDType])
+        with pytest.raises(AssertionError, match='dtype StringDType'):
+            assert_types(array, np.ndarray[tuple[int], np.dtypes.StrDType])
+
+    def test_an_omitted_type_argument_falls_back_to_its_default(self):
+        # `ndarray` defaults its dtype parameter, so this names a two-dimensional
+        # array of any dtype.
+        assert_types(np.zeros((2, 3)), np.ndarray[tuple[int, int]])
+        assert_types(np.zeros((2, 3), dtype=np.int8), np.ndarray[tuple[int, int]])
+        with pytest.raises(AssertionError, match='1 dimension'):
+            assert_types(np.zeros(3), np.ndarray[tuple[int, int]])
+
     def test_a_numpy_scalar_is_not_a_python_int(self):
         # Not a promotion: np.int64 does not subclass int, so pycroscope rejects it.
         with pytest.raises(AssertionError, match='not assignable'):

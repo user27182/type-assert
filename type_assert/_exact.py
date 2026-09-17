@@ -126,13 +126,60 @@ def _mismatch_array(value: Any, expected: Any, *, checker: Checker, path: str) -
     """
     numpy = sys.modules['numpy']
     shape = tuple[()] if value.ndim == 0 else tuple[(int,) * value.ndim]  # type: ignore[misc]
-    actual = numpy.ndarray[shape, numpy.dtype[value.dtype.type]]
+    scalar = value.dtype.type
+    actual = numpy.ndarray[shape, numpy.dtype[scalar]]
+
+    expected = _with_defaults(expected, numpy)
+    concrete = _concrete_dtype(expected, numpy)
+    if concrete is not None:
+        # The dtype is named by one of the classes in `numpy.dtypes` rather than as
+        # `dtype[<scalar>]`. Rebuilding it from the scalar type would not produce
+        # that class -- a variable-width string dtype has no scalar of its own -- so
+        # compare the array's dtype object against the class, and let the ordinary
+        # comparison below carry the dimensionality check.
+        if isinstance(value.dtype, concrete):
+            expected = numpy.ndarray[get_args(expected)[0], numpy.dtype[scalar]]
+        else:
+            return f'{path} is an array of dtype {value.dtype}, which is not {concrete.__name__}'
+
     if _assignable(expected, type_from_runtime(actual), checker):
         return None
     return (
         f'{path} is an array of dtype {value.dtype} with {value.ndim} dimension(s), '
         f'which is not {expected}'
     )
+
+
+def _with_defaults(expected: Any, numpy: Any) -> Any:
+    """Fill in the type arguments an array type left to their defaults.
+
+    `ndarray` declares defaults for both of its parameters, so `ndarray[tuple[int,
+    int]]` is a two-dimensional array of any dtype. The defaults live in the stub,
+    which the runtime class does not carry, so they are restated here.
+    """
+    if get_origin(expected) is not numpy.ndarray:
+        return expected
+    args = get_args(expected)
+    if len(args) == 1:
+        return numpy.ndarray[args[0], numpy.dtype[Any]]
+    return expected
+
+
+def _concrete_dtype(expected: Any, numpy: Any) -> type | None:
+    """Return the `numpy.dtypes` class an array type names as its dtype, if it names one.
+
+    `ndarray[S, dtype[int8]]` parametrises `dtype`, which is a generic alias rather
+    than a class; `ndarray[S, Int8DType]` names the dtype class itself.
+    """
+    if get_origin(expected) is not numpy.ndarray:
+        return None
+    args = get_args(expected)
+    if len(args) != 2:
+        return None
+    dtype = args[1]
+    if isinstance(dtype, type) and issubclass(dtype, numpy.dtype):
+        return dtype
+    return None
 
 
 def _is_array_type(expected: Any, ndarray: type) -> bool:

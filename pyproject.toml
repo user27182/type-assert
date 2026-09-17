@@ -68,6 +68,9 @@ docstring-code-line-length = 75
 quote-style = 'single'
 
 [tool.ruff.lint]
+# `PLC2701` is still a preview rule; `explicit-preview-rules` keeps the rest of
+# preview out, so only the rules named below are in force.
+explicit-preview-rules = true
 extend-select = [
   'A',
   'B',
@@ -83,6 +86,7 @@ extend-select = [
   'PERF',
   'PGH',
   'PIE',
+  'PLC2701',
   'PT',
   'RET',
   'RSE',
@@ -97,6 +101,7 @@ extend-select = [
   'YTT',
 ]
 ignore = ['D203', 'D211', 'D213']
+preview = true
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
@@ -105,10 +110,13 @@ force-sort-within-sections = true
 required-imports = ['from __future__ import annotations']
 
 [tool.ruff.lint.per-file-ignores]
-'tests/*' = ['D102', 'D103']
+# The tests and the helper scripts reach into this package's own internals on
+# purpose; `PLC2701` is here to catch another distribution's private names.
+'tests/*' = ['D102', 'D103', 'PLC2701']
+'tools/*' = ['PLC2701']
 # `Union` and `Optional` here are runtime values handed to `assert_types`, not
 # annotations. Both spellings are worth covering, since users write both.
-'tests/test_assertions.py' = ['D102', 'D103', 'UP007', 'UP045']
+'tests/test_assertions.py' = ['D102', 'D103', 'PLC2701', 'UP007', 'UP045']
 
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = true
