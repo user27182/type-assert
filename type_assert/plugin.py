@@ -15,8 +15,10 @@ per configured checker.
 from __future__ import annotations
 
 from pathlib import Path
+import traceback
 from typing import TYPE_CHECKING
 
+from _pytest.outcomes import OutcomeException
 import pytest
 
 from ._cases import CaseSkipped
@@ -188,6 +190,41 @@ class _Item(pytest.Item):
         reported = _diagnostics(self.config, checker_name).get(self.case_file.path.resolve(), [])
         return [diagnostic for diagnostic in reported if diagnostic.line in lines]
 
+    def failure_header(self) -> str:
+        """Return the first line of a failure report: what failed, and where."""
+        return self.name
+
+    def repr_failure(self, excinfo, style=None):
+        """Report what the case file did, not how this plugin called into it.
+
+        A case runs as compiled module code, so the frames between pytest and it
+        belong to pytest, pluggy and this plugin. None of them tell the reader
+        anything, and there are enough of them to bury the assertion that failed.
+        """
+        if isinstance(excinfo.value, OutcomeException):
+            # `pytest.fail(..., pytrace=False)`: already a plain message.
+            return super().repr_failure(excinfo, style)
+
+        error = excinfo.value
+        lines = [self.failure_header(), '']
+        if isinstance(error, AssertionError) and str(error):
+            lines.append(str(error))
+        else:
+            lines.append(f'Running this raised {type(error).__name__}: {error}')
+
+        frames = [
+            frame
+            for frame in traceback.extract_tb(excinfo.tb)
+            if frame.filename == str(self.case_file.path)
+        ]
+        if frames:
+            lines += ['', 'in the case file:']
+            lines += [
+                f'  {self.case_file.name}:{frame.lineno}: {(frame.line or "").strip()}'
+                for frame in frames
+            ]
+        return '\n'.join(lines)
+
 
 class SetupItem(_Item):
     """Checks a case file's setup: that it is well formed, runs, and type-checks."""
@@ -222,6 +259,10 @@ class _CaseItem(_Item):
         """Record the case this test is about."""
         super().__init__(*args, **kwargs)
         self.case = case
+
+    def failure_header(self) -> str:
+        """Return the case this test is about, and the line it is written on."""
+        return f'{self.case_file.name}:{min(self.case.lines)}: {self.case.id}'
 
 
 class RuntimeItem(_CaseItem):
