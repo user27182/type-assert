@@ -220,6 +220,14 @@ class TestArrays:
         with pytest.raises(AssertionError, match='dtype StringDType'):
             assert_types(array, np.ndarray[tuple[int], np.dtypes.StrDType])
 
+    def test_an_omitted_type_argument_falls_back_to_its_default(self):
+        # `ndarray` defaults its dtype parameter, so this names a two-dimensional
+        # array of any dtype.
+        assert_types(np.zeros((2, 3)), np.ndarray[tuple[int, int]])
+        assert_types(np.zeros((2, 3), dtype=np.int8), np.ndarray[tuple[int, int]])
+        with pytest.raises(AssertionError, match='1 dimension'):
+            assert_types(np.zeros(3), np.ndarray[tuple[int, int]])
+
     def test_a_numpy_scalar_is_not_a_python_int(self):
         # Not a promotion: np.int64 does not subclass int, so pycroscope rejects it.
         with pytest.raises(AssertionError, match='not assignable'):

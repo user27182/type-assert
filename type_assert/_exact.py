@@ -129,6 +129,7 @@ def _mismatch_array(value: Any, expected: Any, *, checker: Checker, path: str) -
     scalar = value.dtype.type
     actual = numpy.ndarray[shape, numpy.dtype[scalar]]
 
+    expected = _with_defaults(expected, numpy)
     concrete = _concrete_dtype(expected, numpy)
     if concrete is not None:
         # The dtype is named by one of the classes in `numpy.dtypes` rather than as
@@ -147,6 +148,21 @@ def _mismatch_array(value: Any, expected: Any, *, checker: Checker, path: str) -
         f'{path} is an array of dtype {value.dtype} with {value.ndim} dimension(s), '
         f'which is not {expected}'
     )
+
+
+def _with_defaults(expected: Any, numpy: Any) -> Any:
+    """Fill in the type arguments an array type left to their defaults.
+
+    `ndarray` declares defaults for both of its parameters, so `ndarray[tuple[int,
+    int]]` is a two-dimensional array of any dtype. The defaults live in the stub,
+    which the runtime class does not carry, so they are restated here.
+    """
+    if get_origin(expected) is not numpy.ndarray:
+        return expected
+    args = get_args(expected)
+    if len(args) == 1:
+        return numpy.ndarray[args[0], numpy.dtype[Any]]
+    return expected
 
 
 def _concrete_dtype(expected: Any, numpy: Any) -> type | None:
