@@ -6,9 +6,11 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from collections.abc import Sequence
 
 from ._base import Checker
@@ -32,11 +34,14 @@ class MypyChecker(Checker):
         root: Path,
         cache_dir: Path | None,
         extra_args: Sequence[str] = (),
+        sources: Mapping[Path, str] | None = None,
     ) -> dict[Path, list[Diagnostic]]:
         """Type-check `package` from `root` and return mypy's errors keyed by file.
 
         mypy discovers the project's own configuration from `root`, so nothing has
-        to be restated here. Anything it cannot express goes in `extra_args`.
+        to be restated here. Anything it cannot express goes in `extra_args`. Each
+        entry of `sources` becomes a `--shadow-file`: mypy checks that text but
+        reports on the file it stands for, under the file's own module name.
         """
         # `--follow-imports=silent` types the symbols the cases use without reporting
         # the host project's own diagnostics, which vary by platform and dependency
@@ -47,6 +52,25 @@ class MypyChecker(Checker):
             defaults.append(f'--cache-dir={cache_dir}')
         # These come after, because the output is parsed and has to stay parsable.
         required = ['--no-color-output', '--no-error-summary', '--no-pretty', '--show-traceback']
+        with tempfile.TemporaryDirectory(prefix='type_assert-mypy-') as shadows:
+            for index, (path, text) in enumerate((sources or {}).items()):
+                shadow = Path(shadows) / f'{index}-{path.name}'
+                shadow.write_text(text, encoding='utf-8')
+                required += ['--shadow-file', str(path.relative_to(root)), str(shadow)]
+            return self._run(
+                package, root=root, defaults=defaults, extra_args=extra_args, required=required
+            )
+
+    def _run(
+        self,
+        package: str,
+        *,
+        root: Path,
+        defaults: list[str],
+        extra_args: Sequence[str],
+        required: list[str],
+    ) -> dict[Path, list[Diagnostic]]:
+        """Run mypy with the assembled arguments and read its output."""
         args = [
             sys.executable,
             '-m',

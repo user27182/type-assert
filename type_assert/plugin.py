@@ -22,6 +22,7 @@ import pytest
 
 from ._cases import CaseSkipped
 from ._cases import collect_case_file
+from ._cases import collect_cases
 from ._checkers import CHECKERS
 from ._checkers import get_checker
 from ._share import run_once
@@ -132,12 +133,17 @@ def _diagnostics(config: pytest.Config, checker_name: str) -> dict[Path, list[Di
         checker = get_checker(checker_name)
 
         def run() -> dict[Path, list[Diagnostic]]:
-            """Type-check the cases with this checker."""
+            """Type-check the cases with this checker, each case guarded."""
             return checker.run(
                 '.'.join(directory.relative_to(root).parts),
                 root=root,
                 cache_dir=root / '.mypy_cache' / f'type_assert-{checker_name}',
                 extra_args=[str(arg) for arg in config.getini(checker_args_ini(checker_name))],
+                sources={
+                    case_file.path: case_file.checked_source
+                    for case_file in collect_cases(directory)
+                    if case_file.checked_source is not None
+                },
             )
 
         cache[checker_name] = run_once(config, checker_name, run)

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from collections.abc import Sequence
     from pathlib import Path
 
@@ -43,12 +44,16 @@ class Checker:
         root: Path,
         cache_dir: Path | None,
         extra_args: Sequence[str] = (),
+        sources: Mapping[Path, str] | None = None,
     ) -> dict[Path, list[Diagnostic]]:
         """Type-check `package` from `root` and return its errors keyed by file.
 
         Running from `root` is what makes the project's own checker configuration
         apply, since that is where every checker looks for it. `extra_args` covers
         what the configuration cannot say: a different config file, a Python
-        version, a strictness flag.
+        version, a strictness flag. `sources` maps a file under `package` to the
+        text to check in place of what is on disk, reported as if it were the file;
+        the plugin passes each case file guarded so that a case whose expression
+        never returns does not make the cases after it unreachable.
         """
         raise NotImplementedError

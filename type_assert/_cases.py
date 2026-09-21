@@ -8,11 +8,14 @@ from typing import TYPE_CHECKING
 from typing import Any
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
     from types import CodeType
 
 ASSERTION = 'assert_types'
 SKIP_RUNTIME = 'SKIP_RUNTIME'
+#: Prefixed to each case when a checker reads the file. See `_guarded`.
+GUARD = 'if bool(): '
 
 
 class CaseError(Exception):
@@ -50,6 +53,9 @@ class CaseFile:
     cases: tuple[Case, ...]
     setup_lines: frozenset[int]
     setup_code: CodeType | None = None
+    #: The file as a checker reads it: every case guarded, so that a case whose
+    #: expression never returns does not hide the cases after it. See `_guarded`.
+    checked_source: str | None = None
     error: str | None = None
 
     @property
@@ -120,6 +126,23 @@ def unbuildable_reason(namespace: dict[str, Any], case: Case) -> str | None:
             f'({type(error).__name__}: {error}), so only a checker can check this case'
         )
     return None
+
+
+def _guarded(source: str, cases: Sequence[Case]) -> str:
+    """Return `source` with every case guarded, so a checker reads each on its own.
+
+    A case whose expression never returns, a call the checker types as `Never`,
+    ends the module's flow for the checker: mypy and pyright treat every statement
+    after it as unreachable and check none of them, so a wrong case there would
+    pass. A guard whose truth the checker cannot decide keeps each case reachable.
+    It shares the module's scope and adds no line, so what the checker infers for
+    the expression and the line it reports on are unchanged.
+    """
+    lines = source.splitlines(keepends=True)
+    for case in cases:
+        first = min(case.lines) - 1
+        lines[first] = GUARD + lines[first]
+    return ''.join(lines)
 
 
 def _case_call(node: ast.AST) -> ast.Call | None:
@@ -206,6 +229,7 @@ def _parse_case_file(path: Path) -> CaseFile:
         cases=tuple(cases),
         setup_lines=frozenset(range(1, len(source.splitlines()) + 1)) - case_lines,
         setup_code=setup_code,
+        checked_source=_guarded(source, cases),
     )
 
 

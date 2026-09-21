@@ -40,6 +40,21 @@ BAD: int = 'not an int'
 assert_types(len([1]), int)
 """
 
+AFTER_NEVER = """\
+from typing import NoReturn
+
+from type_assert import assert_types
+from typing_extensions import Never
+
+
+def boom() -> NoReturn:
+    raise RuntimeError
+
+
+assert_types(boom(), Never)
+assert_types(len([1]), str)
+"""
+
 
 @pytest.fixture
 def package(checker_root):
@@ -282,3 +297,58 @@ class TestPyreflyGuards:
         (directory / 'sample.py').write_text(CLEAN, encoding='utf-8')
         with pytest.raises(CheckerError, match=r'project-includes'):
             PyreflyChecker().run('cases', root=tmp_path, cache_dir=None)
+
+
+class TestSources:
+    """A checker reads the text it is given in place of the file, and reports on the file."""
+
+    @pytest.mark.parametrize('checker', [MypyChecker(), PyrightChecker()])
+    def test_the_given_text_is_checked_not_the_file(self, checker_root, checker):
+        directory = checker_root / 'cases'
+        directory.mkdir()
+        path = directory / 'sample.py'
+        path.write_text(WRONG, encoding='utf-8')
+        found = checker.run(
+            'cases', root=checker_root, cache_dir=checker_root / '.cache', sources={path: CLEAN}
+        )
+        assert found == {}
+
+    @pytest.mark.parametrize('checker', [MypyChecker(), PyrightChecker()])
+    def test_an_error_is_reported_on_the_file_not_the_copy(self, checker_root, checker):
+        directory = checker_root / 'cases'
+        directory.mkdir()
+        path = directory / 'sample.py'
+        path.write_text(CLEAN, encoding='utf-8')
+        found = checker.run(
+            'cases', root=checker_root, cache_dir=checker_root / '.cache', sources={path: WRONG}
+        )
+        assert list(found) == [path.resolve()]
+        assert [error.line for error in found[path.resolve()]] == [3]
+
+    @pytest.mark.parametrize('checker', [MypyChecker(), PyrightChecker()])
+    def test_a_case_after_a_never_is_not_checked_from_the_file_alone(self, package, checker):
+        # What the guard exists for: without it, the checker reads no further.
+        assert package(AFTER_NEVER, checker) == {}
+
+    def test_pyrefly_reads_past_a_never_on_its_own(self, package):
+        # So it is handed nothing, and the file on disk is what it checks.
+        found = package(AFTER_NEVER, PyreflyChecker())
+        assert [error.line for error in found['sample.py']] == [12]
+
+    def test_pyright_resolves_an_import_relative_to_the_package_in_the_copy(self, checker_root):
+        directory = checker_root / 'cases'
+        directory.mkdir()
+        (directory / 'support.py').write_text(
+            'def one() -> int:\n    return 1\n', encoding='utf-8'
+        )
+        path = directory / 'sample.py'
+        source = (
+            'from type_assert import assert_types\n\n'
+            'from .support import one\n\n'
+            'assert_types(one(), str)\n'
+        )
+        path.write_text(source, encoding='utf-8')
+        found = PyrightChecker().run(
+            'cases', root=checker_root, cache_dir=None, sources={path: source}
+        )
+        assert [error.line for error in found[path.resolve()]] == [5]
