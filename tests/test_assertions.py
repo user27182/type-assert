@@ -9,12 +9,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from collections.abc import Iterator
+from collections.abc import Mapping
+from collections.abc import MutableSequence
 from collections.abc import Sequence
+from collections.abc import Set as AbstractSet
 import re
 from typing import Any
+from typing import Generic
 from typing import Literal
 from typing import Optional
 from typing import Protocol
+from typing import TypeVar
 from typing import Union
 from typing import runtime_checkable
 
@@ -23,6 +28,125 @@ import numpy.typing as npt
 import pytest
 
 from type_assert import assert_types
+
+_T = TypeVar('_T')
+_K = TypeVar('_K')
+_V = TypeVar('_V')
+
+
+class Box(MutableSequence[_T]):
+    """A sequence of your own, parametrised the ordinary way."""
+
+    def __init__(self, items):
+        self._items = list(items)
+
+    def __getitem__(self, index):
+        return self._items[index]
+
+    def __setitem__(self, index, value):
+        self._items[index] = value
+
+    def __delitem__(self, index):
+        del self._items[index]
+
+    def __len__(self):
+        return len(self._items)
+
+    def insert(self, index, value):
+        self._items.insert(index, value)
+
+
+class Deeper(Box[_T]):
+    """A class deriving from another class of your own."""
+
+
+class Pair(Sequence[_V], Generic[_K, _V]):
+    """A sequence whose item type is its second parameter, not its first."""
+
+    def __init__(self, items):
+        self._items = list(items)
+
+    def __getitem__(self, index):
+        return self._items[index]
+
+    def __len__(self):
+        return len(self._items)
+
+
+class Fixed(Sequence[int]):
+    """A sequence that fixes its base argument rather than passing one down."""
+
+    def __init__(self, items):
+        self._items = list(items)
+
+    def __getitem__(self, index):
+        return self._items[index]
+
+    def __len__(self):
+        return len(self._items)
+
+
+class _Plain:
+    """A base naming no type argument."""
+
+
+class Mixed(_Plain, Sequence[_T]):
+    """A sequence listing a plain base alongside the one that fixes its items."""
+
+    def __init__(self, items):
+        self._items = list(items)
+
+    def __getitem__(self, index):
+        return self._items[index]
+
+    def __len__(self):
+        return len(self._items)
+
+
+class Opaque(Fixed, Generic[_T]):
+    """A sequence whose own parameter reaches no container base."""
+
+
+class Bag(AbstractSet[_T]):
+    """A set of your own."""
+
+    def __init__(self, items):
+        self._items = set(items)
+
+    def __contains__(self, value):
+        return value in self._items
+
+    def __iter__(self):
+        return iter(self._items)
+
+    def __len__(self):
+        return len(self._items)
+
+
+class Table(Mapping[_K, _V]):
+    """A mapping of your own."""
+
+    def __init__(self, items):
+        self._items = dict(items)
+
+    def __getitem__(self, key):
+        return self._items[key]
+
+    def __iter__(self):
+        return iter(self._items)
+
+    def __len__(self):
+        return len(self._items)
+
+
+class Counter(Iterator[_T]):
+    """An iterator of your own, which must not be consumed to check it."""
+
+    def __init__(self, items):
+        self._items = iter(list(items))
+
+    def __next__(self):
+        return next(self._items)
 
 
 class Base:
@@ -314,3 +438,82 @@ def test_does_not_retain_the_checked_value():
     reference = check()
     gc.collect()
     assert reference() is None
+
+
+class TestUserContainers:
+    """A container class of your own is walked the way a built-in one is."""
+
+    def test_a_matching_item_passes(self):
+        assert_types(Box([1, 2]), Box[int])
+
+    def test_an_item_of_the_wrong_type_is_rejected(self):
+        with pytest.raises(AssertionError):
+            assert_types(Box(['a']), Box[int])
+
+    def test_a_none_among_the_items_is_rejected(self):
+        with pytest.raises(AssertionError):
+            assert_types(Box([1, None]), Box[int])
+
+    def test_a_union_item_type_accepts_either(self):
+        assert_types(Box([1, None]), Box[int | None])
+
+    def test_the_failure_names_the_item(self):
+        with pytest.raises(AssertionError, match=r'\[0\] is str'):
+            assert_types(Box(['a']), Box[int])
+
+    def test_nesting_is_followed(self):
+        with pytest.raises(AssertionError):
+            assert_types(Box([Box(['a'])]), Box[Box[int]])
+
+    def test_a_base_class_of_your_own_is_followed(self):
+        with pytest.raises(AssertionError):
+            assert_types(Deeper(['a']), Deeper[int])
+
+    def test_the_argument_is_matched_to_the_parameter_it_fills(self):
+        # `Pair` passes its *second* argument to the base, so the first says nothing
+        # about the items. Assuming the first would reject this wrongly.
+        assert_types(Pair([1]), Pair[str, int])
+
+    def test_that_parameter_is_still_checked(self):
+        with pytest.raises(AssertionError):
+            assert_types(Pair(['a']), Pair[str, int])
+
+    def test_a_class_that_fixes_its_base_argument_has_no_parameter_to_check(self):
+        assert_types(Fixed(['a']), Fixed)
+
+    def test_a_plain_base_is_skipped_to_reach_the_container_one(self):
+        with pytest.raises(AssertionError):
+            assert_types(Mixed(['a']), Mixed[int])
+
+    def test_a_parameter_reaching_no_container_base_is_left_alone(self):
+        # Nothing says the parameter describes the items, so nothing is claimed.
+        assert_types(Opaque(['a']), Opaque[int])
+
+    def test_a_string_is_not_walked_as_a_sequence_of_characters(self):
+        assert_types('ab', Sequence[str])
+
+    def test_a_set_of_your_own_is_walked(self):
+        with pytest.raises(AssertionError):
+            assert_types(Bag({'a'}), Bag[int])
+
+    def test_a_mapping_of_your_own_is_walked(self):
+        with pytest.raises(AssertionError):
+            assert_types(Table({'a': 'b'}), Table[str, int])
+
+    def test_its_keys_are_checked_too(self):
+        with pytest.raises(AssertionError):
+            assert_types(Table({1: 2}), Table[str, int])
+
+    def test_an_iterator_subclass_is_not_consumed(self):
+        # Walking it would leave the case's own value empty, as for a plain iterator.
+        values = Counter([1, 2, 3])
+        assert_types(values, Counter[int])
+        assert list(values) == [1, 2, 3]
+
+
+def test_a_long_repr_is_shortened_in_the_failure():
+    with pytest.raises(AssertionError) as failure:
+        assert_types(Box(['x' * 500]), Box[int])
+    (line,) = [line for line in str(failure.value).splitlines() if 'is str' in line]
+    assert '...' in line
+    assert len(line) < 200

@@ -1,16 +1,19 @@
-"""The two ways the runtime half is stricter than plain assignability.
+"""The ways the runtime half is stricter than plain assignability.
 
 pycroscope decides whether a value is assignable to a type the way the type system
-does, which lets an `int` pass for `float` and cannot see the type arguments of a
-NumPy array. Both are places where a declared type and a produced value drift apart
-in practice, so after pycroscope has accepted a value, `mismatch` walks it once more
-against the expected type and rejects those two things: a number that is not an
-instance of the numeric class named, and an array whose dtype or dimensionality is
-not the one named. Anything it does not understand it leaves to pycroscope's verdict.
+does, which lets an `int` pass for `float`, cannot see the type arguments of a NumPy
+array, and reads a container it does not recognise as bare. Each is a place where a
+declared type and a produced value drift apart in practice, so after pycroscope has
+accepted a value, `mismatch` walks it once more against the expected type and rejects
+a number that is not an instance of the numeric class named, an array whose dtype or
+dimensionality is not the one named, and an item of the wrong type in any sequence,
+set or mapping, the built-in ones and a class of your own alike. Anything it does not
+understand it leaves to pycroscope's verdict.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import MutableMapping
 from collections.abc import MutableSequence
@@ -38,6 +41,14 @@ if TYPE_CHECKING:
 _NUMERIC = (float, int, complex)
 _SEQUENCES = (list, set, frozenset, Sequence, MutableSequence, AbstractSet, MutableSet)
 _MAPPINGS = (dict, Mapping, MutableMapping)
+#: Container protocols whose parameters say what the container holds. A class of
+#: your own is walked only through one of these, and each can be iterated more than
+#: once; an `Iterator` cannot, and reading it would consume the value under test.
+_WALKABLE = (Sequence, AbstractSet, Mapping)
+#: Of those, the ones walked item by item rather than as key and value pairs.
+_ITEMWISE = (Sequence, AbstractSet)
+#: Never walked as a sequence of characters.
+_TEXT = (str, bytes, bytearray)
 
 
 def mismatch(value: object, expected: Any, *, checker: Checker, path: str = 'value') -> str | None:
@@ -54,17 +65,100 @@ def mismatch(value: object, expected: Any, *, checker: Checker, path: str = 'val
         return _mismatch_union(value, expected, checker=checker, path=path)
     if expected in _NUMERIC:
         return _mismatch_number(value, expected, path=path)
-    if origin in _SEQUENCES and isinstance(value, (list, tuple, set, frozenset)):
-        (item_type,) = get_args(expected) or (Any,)
-        return _mismatch_items(value, [item_type] * len(value), checker=checker, path=path)
     if origin is tuple and isinstance(value, tuple):
         return _mismatch_tuple(value, expected, checker=checker, path=path)
-    if origin in _MAPPINGS and isinstance(value, dict):
-        return _mismatch_mapping(value, expected, checker=checker, path=path)
+    contents = _contents(expected)
+    if contents is not None:
+        return _mismatch_contents(value, contents, checker=checker, path=path)
     ndarray = _ndarray_class()
     if ndarray is not None and isinstance(value, ndarray) and _is_array_type(expected, ndarray):
         return _mismatch_array(value, expected, checker=checker, path=path)
     return None
+
+
+def _contents(expected: Any) -> tuple[Any, ...] | None:
+    """Return the item types a container type holds, or `None` if it is not one.
+
+    One type for a sequence or set, two for a mapping. A class of your own reaches
+    its container base through `_inherited`, so `MultiBlock[PolyData]` answers with
+    `PolyData` the way `list[PolyData]` does.
+    """
+    origin = get_origin(expected)
+    if origin in _MAPPINGS:
+        return get_args(expected) or (Any, Any)
+    if origin in _SEQUENCES:
+        return get_args(expected) or (Any,)
+    return _inherited(expected)
+
+
+def _inherited(expected: Any) -> tuple[Any, ...] | None:
+    """Return the item types a parametrised class passes to its container base.
+
+    The arguments are matched to the class's own parameters and substituted into the
+    base it lists, so a class that reorders or wraps them is followed correctly rather
+    than assumed to hold its first argument.
+    """
+    origin = get_origin(expected)
+    if not isinstance(origin, type) or not issubclass(origin, _WALKABLE):
+        return None
+    return _substituted(origin, dict(zip(_parameters(origin), get_args(expected), strict=False)))
+
+
+def _parameters(cls: type) -> tuple[Any, ...]:
+    """Return the type variables `cls` takes, in the order it takes them.
+
+    Paired with the arguments loosely: a class subscripted with the wrong number of
+    them leaves a type variable unsubstituted, which `_substituted` refuses rather
+    than guessing at.
+
+    Inheriting a `collections.abc` alias does not make a class a `Generic` subclass,
+    so typing records no parameters for it; the aliases it lists carry them instead.
+    """
+    declared = getattr(cls, '__parameters__', ())
+    if declared:
+        return tuple(declared)
+    found: list[Any] = []
+    for base in getattr(cls, '__orig_bases__', ()):
+        found += [
+            parameter
+            for parameter in getattr(base, '__parameters__', ())
+            if parameter not in found
+        ]
+    return tuple(found)
+
+
+def _substituted(cls: type, arguments: Mapping[Any, Any]) -> tuple[Any, ...] | None:
+    """Return `cls`'s item types, following the generic bases it declares.
+
+    Recurses so that a class deriving from another class of your own is followed to
+    whichever container base finally fixes the item type.
+    """
+    for base in getattr(cls, '__orig_bases__', ()):
+        origin = get_origin(base)
+        if origin is None:
+            continue
+        args = tuple(arguments.get(argument, argument) for argument in get_args(base))
+        if origin in _MAPPINGS or origin in _SEQUENCES:
+            # A parameter the class does not pass down leaves nothing to check against.
+            return None if any(argument in arguments for argument in args) else args
+        if isinstance(origin, type):
+            found = _substituted(origin, dict(zip(_parameters(origin), args, strict=False)))
+            if found is not None:
+                return found
+    return None
+
+
+def _mismatch_contents(
+    value: object, contents: tuple[Any, ...], *, checker: Checker, path: str
+) -> str | None:
+    """Check the items of a container against the types it says it holds."""
+    if isinstance(value, Mapping):
+        key_type, value_type = contents if len(contents) == 2 else (Any, Any)
+        return _mismatch_mapping(value, key_type, value_type, checker=checker, path=path)
+    if len(contents) != 1 or isinstance(value, _TEXT) or not isinstance(value, _ITEMWISE):
+        return None
+    items = list(value)
+    return _mismatch_items(items, [contents[0]] * len(items), checker=checker, path=path)
 
 
 def _mismatch_union(value: object, expected: Any, *, checker: Checker, path: str) -> str | None:
@@ -84,13 +178,32 @@ def _mismatch_number(value: object, expected: type, *, path: str) -> str | None:
     return f'{path} is {_describe(value)}, not {expected.__name__}'
 
 
-def _mismatch_items(items, item_types, *, checker: Checker, path: str) -> str | None:
+def _mismatch_items(
+    items: Iterable[Any], item_types: Iterable[Any], *, checker: Checker, path: str
+) -> str | None:
     """Check each item of a sequence against its type."""
     for index, (item, item_type) in enumerate(zip(items, item_types, strict=True)):
-        problem = mismatch(item, item_type, checker=checker, path=f'{path}[{index}]')
+        problem = _mismatch_item(item, item_type, checker=checker, path=f'{path}[{index}]')
         if problem is not None:
             return problem
     return None
+
+
+def _mismatch_item(item: object, expected: Any, *, checker: Checker, path: str) -> str | None:
+    """Check one item of a container, by assignability and then by the stricter reading.
+
+    The assignability half is what pycroscope does for a container it recognises and
+    skips for one it does not, so asking here is what lets a class of your own be
+    checked at all.
+    """
+    if not _assignable(expected, KnownValue(item), checker):
+        return f'{path} is {_describe(item)}, which is not {_name(expected)}'
+    return mismatch(item, expected, checker=checker, path=path)
+
+
+def _name(expected: Any) -> str:
+    """Name a type the way the failure messages read."""
+    return getattr(expected, '__name__', None) or str(expected)
 
 
 def _mismatch_tuple(value: tuple, expected: Any, *, checker: Checker, path: str) -> str | None:
@@ -104,14 +217,15 @@ def _mismatch_tuple(value: tuple, expected: Any, *, checker: Checker, path: str)
     return _mismatch_items(value, args, checker=checker, path=path)
 
 
-def _mismatch_mapping(value: dict, expected: Any, *, checker: Checker, path: str) -> str | None:
+def _mismatch_mapping(
+    value: Mapping[Any, Any], key_type: Any, value_type: Any, *, checker: Checker, path: str
+) -> str | None:
     """Check a mapping key by key and value by value."""
-    key_type, value_type = get_args(expected) or (Any, Any)
     for key, item in value.items():
-        problem = mismatch(key, key_type, checker=checker, path=f'{path} key {key!r}')
+        problem = _mismatch_item(key, key_type, checker=checker, path=f'{path} key {key!r}')
         if problem is not None:
             return problem
-        problem = mismatch(item, value_type, checker=checker, path=f'{path}[{key!r}]')
+        problem = _mismatch_item(item, value_type, checker=checker, path=f'{path}[{key!r}]')
         if problem is not None:
             return problem
     return None
@@ -207,6 +321,18 @@ def _assignable(expected: Any, actual: Any, checker: Checker) -> bool:
     return not isinstance(relation, CanAssignError)
 
 
+#: Longest repr kept in a message, before the middle is elided.
+_REPR_WIDTH = 60
+
+
 def _describe(value: object) -> str:
-    """Name a value by its class and repr, the way the failure messages read."""
-    return f'{type(value).__name__} {value!r}'
+    """Name a value by its class and repr, the way the failure messages read.
+
+    The repr is flattened to one line and shortened, since an object that reprs as a
+    table would otherwise bury the sentence it sits in.
+    """
+    shown = ' '.join(repr(value).split())
+    if len(shown) > _REPR_WIDTH:
+        half = _REPR_WIDTH // 2 - 2
+        shown = f'{shown[:half]} ... {shown[-half:]}'
+    return f'{type(value).__name__} {shown}'
