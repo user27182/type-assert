@@ -178,7 +178,10 @@ moving. Adding a backend is a single module — see `type_assert/_checkers/`.
 ## Skipping a case at runtime
 
 A case that cannot run everywhere — it crashes on a platform, or needs something that is
-not always installed — is named in a `SKIP_RUNTIME` mapping in its own file:
+not always installed — is named in a `SKIP_RUNTIME` mapping in its own file. A case that
+expects `Never` does not belong here: its expression raising is the claim it makes, and
+the runtime half checks it.
+
 
 ```python
 SKIP_RUNTIME = {
@@ -203,7 +206,14 @@ To a checker that expression ends the module: everything after it is unreachable
 mypy and pyright check none of it, so a wrong case further down would pass. The plugin
 therefore hands each checker the file with every case guarded, which keeps each one
 reachable without changing its scope or its line number, so `Never` cases can sit
-anywhere and in any number. mypy reads the guarded text through `--shadow-file`. pyright
+anywhere and in any number.
+
+The runtime half runs the expression on its own and passes when it does not return,
+so the case is a real assertion rather than something to skip: an expression that
+returns a value fails it, naming what came back. The assertion itself is not run,
+because the call raises while its own arguments are being evaluated, before
+`assert_types` is entered. `NoReturn` is read the same way as `Never`, and a case
+named in `SKIP_RUNTIME` is still skipped. mypy reads the guarded text through `--shadow-file`. pyright
 has no equivalent, so it reads a copy of the cases directory made outside the project:
 imports relative to that directory resolve inside the copy, absolute ones resolve from
 the project as before, and settings scoped to the directory's path do not reach it.

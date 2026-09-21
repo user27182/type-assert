@@ -6,6 +6,9 @@ import ast
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import NoReturn
+
+from typing_extensions import Never
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -35,6 +38,9 @@ class Case:
     expression: str
     expected: str
     code: CodeType
+    #: The expression on its own. A case expecting `Never` runs this rather than the
+    #: whole assertion, because the call raising is the claim it makes.
+    expression_code: CodeType | None = None
     #: Whether the expected type was written as a string. A checker reads it the same
     #: way; at runtime it is built in the file's namespace, which may not be possible.
     quoted: bool = False
@@ -87,6 +93,9 @@ class CaseFile:
         reason = skip_reason(namespace, case) or unbuildable_reason(namespace, case)
         if reason is not None:
             raise CaseSkipped(reason)
+        if expects_never(namespace, case):
+            run_never(namespace, case)
+            return
         exec(case.code, namespace)  # noqa: S102
 
     def unknown_skips(self, namespace: dict[str, Any]) -> list[str]:
@@ -94,6 +103,39 @@ class CaseFile:
         declared = namespace.get(SKIP_RUNTIME) or {}
         expressions = {case.expression for case in self.cases}
         return sorted(key for key in declared if key not in expressions)
+
+
+def expects_never(namespace: dict[str, Any], case: Case) -> bool:
+    """Tell whether `case` claims its expression never returns.
+
+    Read from the value the expected type names rather than from how it is spelled,
+    so `Never`, `NoReturn` and either module's version of them all count.
+    """
+    if case.expression_code is None:
+        return False
+    try:
+        expected = eval(case.expected, namespace)
+    except Exception:  # noqa: BLE001 - an unbuildable type is simply not `Never`
+        return False
+    return expected is Never or expected is NoReturn
+
+
+def run_never(namespace: dict[str, Any], case: Case) -> None:
+    """Run the expression of a case that claims it never returns.
+
+    The assertion is not run: the expression raising *is* the claim, and it raises
+    while its own arguments are being evaluated, before `assert_types` is entered.
+    An expression that returns has disproved the case, whatever it returned.
+    """
+    try:
+        value = eval(case.expression_code, namespace)
+    except Exception:  # noqa: BLE001 - not returning is what the case claims
+        return
+    msg = (
+        f'{case.expression} was expected never to return, but it returned '
+        f'{type(value).__name__} {value!r}'
+    )
+    raise AssertionError(msg)
 
 
 def skip_reason(namespace: dict[str, Any], case: Case) -> str | None:
@@ -219,6 +261,11 @@ def _parse_case_file(path: Path) -> CaseFile:
                 expression=ast.unparse(call.args[0]),
                 expected=expected,
                 code=compile(ast.fix_missing_locations(module), str(path), 'exec'),
+                expression_code=compile(
+                    ast.fix_missing_locations(ast.Expression(body=call.args[0])),
+                    str(path),
+                    'eval',
+                ),
                 quoted=quoted,
             )
         )

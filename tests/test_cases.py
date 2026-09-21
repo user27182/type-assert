@@ -315,3 +315,66 @@ class TestCheckedSource:
 
     def test_a_file_that_did_not_parse_has_none(self, write):
         assert write('assert_types(len([1]) int)\n').checked_source is None
+
+
+class TestNeverCases:
+    """A case expecting `Never` runs its expression and asserts it does not return."""
+
+    RAISES = (
+        'from typing import NoReturn\n'
+        'from typing_extensions import Never\n\n'
+        'def boom() -> NoReturn:\n'
+        "    raise RuntimeError('nope')\n\n"
+        'def fine() -> int:\n'
+        '    return 1\n\n'
+    )
+
+    def case(self, write, body, name='cases.py'):
+        """Parse a file whose setup defines a raising and a returning function."""
+        return write(body, name=name, prelude=IMPORT + self.RAISES)
+
+    def test_an_expression_that_raises_passes(self, write):
+        case_file = self.case(write, 'assert_types(boom(), Never)\n')
+        (case,) = case_file.cases
+        case_file.run(case)
+
+    def test_an_expression_that_returns_fails(self, write):
+        case_file = self.case(write, 'assert_types(fine(), Never)\n')
+        (case,) = case_file.cases
+        with pytest.raises(AssertionError, match='never to return'):
+            case_file.run(case)
+
+    def test_the_failure_names_what_it_returned(self, write):
+        case_file = self.case(write, 'assert_types(fine(), Never)\n')
+        (case,) = case_file.cases
+        with pytest.raises(AssertionError, match='int 1'):
+            case_file.run(case)
+
+    def test_no_return_is_read_the_same_way(self, write):
+        case_file = self.case(write, 'assert_types(boom(), NoReturn)\n')
+        (case,) = case_file.cases
+        case_file.run(case)
+
+    def test_a_skip_still_applies(self, write):
+        body = "SKIP_RUNTIME = {'boom()': 'not here'}\nassert_types(boom(), Never)\n"
+        case_file = self.case(write, body)
+        (case,) = case_file.cases
+        with pytest.raises(CaseSkipped):
+            case_file.run(case)
+
+    def test_an_ordinary_case_still_runs_the_assertion(self, write):
+        case_file = self.case(write, 'assert_types(fine(), str)\n')
+        (case,) = case_file.cases
+        with pytest.raises(AssertionError):
+            case_file.run(case)
+
+    def test_a_case_in_the_same_file_is_unaffected(self, write):
+        body = 'assert_types(boom(), Never)\nassert_types(fine(), int)\n'
+        case_file = self.case(write, body)
+        for case in case_file.cases:
+            case_file.run(case)
+
+    def test_every_case_carries_its_expression(self, write):
+        case_file = self.case(write, 'assert_types(fine(), int)\n')
+        (case,) = case_file.cases
+        assert case.expression_code is not None
