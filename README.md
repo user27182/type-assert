@@ -93,8 +93,8 @@ check is assignability, the relation the type system itself uses for a value: an
 instance of a subclass passes for its base class, and every element of a container is
 held to the same rule.
 
-Two things are read more strictly than the type system would, because they are where a
-declared type and a produced value drift apart in practice:
+Three things are read more strictly than the type system would, because they are where
+a declared type and a produced value drift apart in practice:
 
 - A number has to be an instance of the numeric class named. An `int` does not pass for
   `float`, a `bool` does not pass for `int`, and `[1, 2]` does not pass for
@@ -102,13 +102,22 @@ declared type and a produced value drift apart in practice:
 - A NumPy array is checked as the array type it actually is, dtype and number of
   dimensions included, so a `float64` array does not pass for `NDArray[np.int64]`
   and a 1-D array does not pass for `ndarray[tuple[int, int], ...]`.
+- A container is walked item by item, a class of your own as much as a built-in one. A
+  class reaches its item type through the arguments it passes to the `Sequence`, `Set`
+  or `Mapping` it derives from, so `Blocks[Polygon]` rejects a `Blocks` holding a
+  `Circle` exactly as `list[Polygon]` would.
 
-Both apply at any depth inside lists, tuples, sets and dicts. What the runtime half
-cannot check is a type argument the value does not carry: a `Box[int]` is only a `Box`
-at runtime, and there the checker is the sole authority. A supertype still fails only
-the static half, which is the intended division of labour: the checker guards what was
-declared, the run guards what was produced, and a case passes only when the declaration
-is exact and the value honours it.
+All three apply at any depth. The last one is followed through a base class of your own
+and through whichever parameter the class actually passes down, so a class whose item
+type is its *second* argument is read correctly rather than assumed. An `Iterator` is
+never walked, since reading it would consume the value the case is about.
+
+What the runtime half still cannot check is a type argument no value carries: a
+`Result[int]` wrapping a single value is only a `Result` at runtime, and an empty
+container agrees with every item type. There the checker is the sole authority. A
+supertype still fails only the static half, which is the intended division of labour:
+the checker guards what was declared, the run guards what was produced, and a case
+passes only when the declaration is exact and the value honours it.
 
 ## Types that only a checker can spell
 

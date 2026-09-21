@@ -112,7 +112,7 @@ required-imports = ['from __future__ import annotations']
 [tool.ruff.lint.per-file-ignores]
 # The tests and the helper scripts reach into this package's own internals on
 # purpose; `PLC2701` is here to catch another distribution's private names.
-'tests/*' = ['D102', 'D103', 'PLC2701']
+'tests/*' = ['D102', 'D103', 'D105', 'D107', 'PLC2701']
 'tools/*' = ['PLC2701']
 # `Union` and `Optional` here are runtime values handed to `assert_types`, not
 # annotations. Both spellings are worth covering, since users write both.
