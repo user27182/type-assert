@@ -182,6 +182,24 @@ after the file's setup has run, so making an entry conditional is ordinary Pytho
 entry naming an expression that no case makes fails the file's `setup` test, so a skip
 cannot quietly outlive the case it was written for.
 
+## A case that never returns
+
+A case can claim that a call raises, by expecting `Never`:
+
+```python
+assert_types(pointset().slice(), Never)
+```
+
+To a checker that expression ends the module: everything after it is unreachable, and
+mypy and pyright check none of it, so a wrong case further down would pass. The plugin
+therefore hands each checker the file with every case guarded, which keeps each one
+reachable without changing its scope or its line number, so `Never` cases can sit
+anywhere and in any number. mypy reads the guarded text through `--shadow-file`. pyright
+has no equivalent, so it reads a copy of the cases directory made outside the project:
+imports relative to that directory resolve inside the copy, absolute ones resolve from
+the project as before, and settings scoped to the directory's path do not reach it.
+pyrefly checks unreachable code on its own and reads the files as they are.
+
 ## Running the cases on their own
 
 Case files collect like any other test file, so a job can run just them:

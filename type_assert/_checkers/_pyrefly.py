@@ -13,6 +13,7 @@ from ._base import CheckerError
 from ._base import Diagnostic
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from collections.abc import Sequence
 
 # `ERROR path:line:col-col: message`, the shape of `--output-format min-text`.
@@ -35,6 +36,7 @@ class PyreflyChecker(Checker):
         root: Path,
         cache_dir: Path | None,
         extra_args: Sequence[str] = (),
+        sources: Mapping[Path, str] | None = None,
     ) -> dict[Path, list[Diagnostic]]:
         """Type-check `package` from `root` and return pyrefly's errors keyed by file.
 
@@ -42,6 +44,9 @@ class PyreflyChecker(Checker):
         the others it will not check anything without one -- see below.
         """
         del cache_dir  # pyrefly keeps no cache of its own to point elsewhere.
+        # pyrefly checks code the others consider unreachable, so the files on disk
+        # already read each case on its own.
+        del sources
         target = Path(root) / Path(*package.split('.'))
         # pyrefly reports success for a path that does not exist, where mypy and
         # pyright both refuse. Refuse here too: passing for nothing is the one

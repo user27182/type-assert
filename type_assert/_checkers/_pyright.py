@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from collections.abc import Sequence
 
 from ._base import Checker
@@ -45,16 +48,34 @@ class PyrightChecker(Checker):
         root: Path,
         cache_dir: Path | None,
         extra_args: Sequence[str] = (),
+        sources: Mapping[Path, str] | None = None,
     ) -> dict[Path, list[Diagnostic]]:
         """Type-check `package` from `root` and return pyright's errors keyed by file.
 
         pyright discovers the project's own configuration from `root`, so nothing
         has to be restated here. Anything it cannot express goes in `extra_args`.
+        pyright has no way to check one text in place of another, so given `sources`
+        it checks a copy of the package made outside the project, with those files
+        replaced, and reports on the originals. Imports relative to the package
+        resolve inside the copy; absolute ones resolve from `root` as before.
         """
         del cache_dir  # pyright keeps no cache of its own to point elsewhere.
         # pyright reports only on the files it is given, so unlike mypy it needs no
         # equivalent of `--follow-imports=silent` to stay quiet about the host project.
         target = Path(root) / Path(*package.split('.'))
+        if not sources:
+            return self._run(target, root=root, extra_args=extra_args, checked=target)
+        with tempfile.TemporaryDirectory(prefix='type_assert-pyright-') as directory:
+            mirror = Path(directory) / target.name
+            shutil.copytree(target, mirror, ignore=shutil.ignore_patterns('__pycache__'))
+            for path, text in sources.items():
+                (mirror / path.relative_to(target)).write_text(text, encoding='utf-8')
+            return self._run(target, root=root, extra_args=extra_args, checked=mirror)
+
+    def _run(
+        self, target: Path, *, root: Path, extra_args: Sequence[str], checked: Path
+    ) -> dict[Path, list[Diagnostic]]:
+        """Run pyright on `checked` and report its errors as errors in `target`."""
         args = [
             sys.executable,
             '-m',
@@ -64,7 +85,7 @@ class PyrightChecker(Checker):
             *extra_args,
             # Last, because the output is parsed and has to stay parsable.
             '--outputjson',
-            str(target),
+            str(checked),
         ]
 
         try:
@@ -88,7 +109,8 @@ class PyrightChecker(Checker):
         for entry in report.get('generalDiagnostics', []):
             if entry.get('severity') != 'error':
                 continue
-            path = Path(entry['file']).resolve()
+            path = target / Path(entry['file']).resolve().relative_to(checked.resolve())
+            path = path.resolve()
             # pyright counts lines from zero; everything else here counts from one.
             line = entry['range']['start']['line'] + 1
             diagnostics.setdefault(path, []).append(

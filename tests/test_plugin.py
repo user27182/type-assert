@@ -434,3 +434,31 @@ def test_a_setup_that_raises_reports_the_line_it_raised_on(project):
     assert 'sample.py:3:' in report
     assert '_pytest/runner.py' not in report
     assert '_hookexec' not in report
+
+
+AFTER_NEVER = """\
+from typing import NoReturn
+
+from type_assert import assert_types
+from typing_extensions import Never
+
+SKIP_RUNTIME = {'boom()': 'it raises, which is what the case is about'}
+
+
+def boom() -> NoReturn:
+    raise RuntimeError
+
+
+assert_types(boom(), Never)
+assert_types(len([1]), str)
+assert_types(boom(), Never)
+"""
+
+
+@pytest.mark.parametrize('checker', ['mypy', 'pyright'])
+def test_a_case_after_one_that_never_returns_is_still_checked(project, checker):
+    # The checker would otherwise treat everything after the first `Never` as
+    # unreachable and check none of it, passing the wrong case in the middle.
+    result = project(AFTER_NEVER, checkers=checker).runpytest()
+    result.assert_outcomes(passed=3, skipped=2, failed=2)
+    result.stdout.fnmatch_lines([f'*len([[]1]) -> str [[]static: {checker}]*'])

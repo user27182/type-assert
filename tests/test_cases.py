@@ -10,6 +10,7 @@ from type_assert import CaseError
 from type_assert import CaseSkipped
 from type_assert import collect_case_file
 from type_assert import collect_cases
+from type_assert._cases import GUARD
 
 IMPORT = 'from type_assert import assert_types\n'
 
@@ -277,3 +278,40 @@ class TestSkipping:
         body = "SKIP_RUNTIME = {'len([1])': 'a reason'}\nassert_types(len([1]), int)\n"
         case_file = write(body)
         assert case_file.unknown_skips(case_file.setup_namespace()) == []
+
+
+class TestCheckedSource:
+    """The text a checker reads: every case guarded, nothing else touched."""
+
+    def test_every_case_is_guarded(self, write):
+        case_file = write('assert_types(len([1]), int)\nassert_types(str(1), str)\n')
+        assert case_file.checked_source == (
+            f'{IMPORT}{GUARD}assert_types(len([1]), int)\n{GUARD}assert_types(str(1), str)\n'
+        )
+
+    def test_setup_lines_are_untouched(self, write):
+        body = 'x = [1]\n\n\ndef f() -> int:\n    return 1\n\n\nassert_types(f(), int)\n'
+        case_file = write(body)
+        assert case_file.checked_source == IMPORT + body.replace(
+            'assert_types', f'{GUARD}assert_types'
+        )
+
+    def test_the_line_count_is_preserved(self, write):
+        body = 'assert_types(\n    len([1]),\n    int,\n)\nassert_types(str(1), str)\n'
+        case_file = write(body)
+        assert case_file.checked_source is not None
+        assert case_file.checked_source.count('\n') == (IMPORT + body).count('\n')
+
+    def test_a_case_spanning_several_lines_is_guarded_on_its_first(self, write):
+        case_file = write('assert_types(\n    len([1]),\n    int,\n)\n')
+        assert (
+            case_file.checked_source
+            == f'{IMPORT}{GUARD}assert_types(\n    len([1]),\n    int,\n)\n'
+        )
+
+    def test_the_guard_shares_the_module_scope(self, write):
+        # A guard that opened a new scope would lose narrowing done in the setup.
+        assert GUARD.startswith('if ')
+
+    def test_a_file_that_did_not_parse_has_none(self, write):
+        assert write('assert_types(len([1]) int)\n').checked_source is None
