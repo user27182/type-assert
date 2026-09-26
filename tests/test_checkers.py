@@ -226,6 +226,20 @@ class TestOutputHandling:
         monkeypatch.setattr(subprocess, 'run', self._fake_run(returncode=1))
         assert MypyChecker().run('cases', root=tmp_path, cache_dir=None) == {}
 
+    def test_mypy_command_line_stays_short_with_many_sources(self, monkeypatch, tmp_path):
+        commands = []
+
+        def _run(command, **kwargs):
+            del kwargs
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, '', '')
+
+        monkeypatch.setattr(subprocess, 'run', _run)
+        sources = {tmp_path / f'case_{index}.py': '' for index in range(2000)}
+        MypyChecker().run('cases', root=tmp_path, cache_dir=None, sources=sources)
+        (command,) = commands
+        assert sum(len(part) for part in command) < 1000
+
     def test_mypy_exit_code_two_is_a_failure(self, monkeypatch, tmp_path):
         monkeypatch.setattr(subprocess, 'run', self._fake_run(returncode=2))
         with pytest.raises(CheckerError, match='mypy failed to run'):

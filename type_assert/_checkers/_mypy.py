@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -19,6 +20,14 @@ from ._base import Diagnostic
 
 # `path:line:col: severity: message`, with the column absent on whole-file diagnostics.
 _DIAGNOSTIC = re.compile(r'^(?P<path>.+?):(?P<line>\d+):(?:\d+:)? (?P<severity>\w+): (?P<msg>.*)$')
+
+# Runs `python -m mypy` with the arguments in the JSON file named by its first argument
+_BOOTSTRAP = """\
+import json, runpy, sys
+with open(sys.argv[1], encoding='utf-8') as file:
+    sys.argv = ['mypy', *json.load(file)]
+runpy.run_module('mypy', run_name='__main__', alter_sys=True)
+"""
 
 
 class MypyChecker(Checker):
@@ -71,22 +80,19 @@ class MypyChecker(Checker):
         required: list[str],
     ) -> dict[Path, list[Diagnostic]]:
         """Run mypy with the assembled arguments and read its output."""
-        args = [
-            sys.executable,
-            '-m',
-            'mypy',
-            *defaults,
-            *extra_args,
-            *required,
-            '--package',
-            package,
-        ]
+        args = [*defaults, *extra_args, *required, '--package', package]
 
-        try:
-            process = subprocess.run(args, capture_output=True, cwd=root, text=True, check=False)
-        except OSError as error:  # pragma: no cover - defensive
-            msg = f'Could not run mypy: {error}'
-            raise CheckerError(msg) from error
+        with tempfile.TemporaryDirectory(prefix='type_assert-mypy-args-') as directory:
+            args_file = Path(directory) / 'args.json'
+            args_file.write_text(json.dumps(args), encoding='utf-8')
+            command = [sys.executable, '-c', _BOOTSTRAP, str(args_file)]
+            try:
+                process = subprocess.run(
+                    command, capture_output=True, cwd=root, text=True, check=False
+                )
+            except OSError as error:  # pragma: no cover - defensive
+                msg = f'Could not run mypy: {error}'
+                raise CheckerError(msg) from error
 
         # mypy exits 1 when it reports diagnostics and 2 when it could not run.
         if process.returncode > 1 or process.stderr:
@@ -94,7 +100,8 @@ class MypyChecker(Checker):
             if 'No module named mypy' in process.stderr:
                 hint = '\n\nInstall it with: pip install type-assert[mypy]'
             msg = (
-                f'mypy failed to run:\n{" ".join(args)}\n\n{process.stderr}{process.stdout}{hint}'
+                f'mypy failed to run:\nmypy {" ".join(args)}\n\n'
+                f'{process.stderr}{process.stdout}{hint}'
             )
             raise CheckerError(msg)
 
