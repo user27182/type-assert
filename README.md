@@ -185,11 +185,11 @@ checks it.
 ```python
 from type_assert import assert_types, skip_runtime
 
-with skip_runtime('why running it fails here'):
+with skip_runtime(reason='why running it fails here'):
     assert_types(an_expression(), int)
     assert_types(another_expression(), str)
 
-with skip_runtime('why it fails on Windows', when=sys.platform == 'win32'):
+with skip_runtime(sys.platform == 'win32', reason='why it fails on Windows'):
     assert_types(a_third_expression(), bytes)
 ```
 
@@ -201,7 +201,7 @@ without a condition:
 
 ```toml
 [tool.coverage.report]
-exclude_also = ['^with skip_runtime\((?!.*\bwhen=).*:$']
+exclude_also = ['^with skip_runtime\(\s*reason=']
 ```
 
 ## A case that never returns

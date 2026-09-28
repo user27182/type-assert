@@ -9,12 +9,12 @@ if TYPE_CHECKING:
 
 
 class skip_runtime:  # noqa: N801
-    """Skip the runtime half of the cases in a `with` block, when `when` is true."""
+    """Skip the runtime half of the cases in a `with` block, when `condition` is true."""
 
-    def __init__(self, reason: str, *, when: bool = True) -> None:
-        """Record why the cases are skipped, and whether the skip applies."""
+    def __init__(self, condition: bool = True, *, reason: str) -> None:
+        """Record whether the skip applies, and why the cases are skipped."""
+        self.condition = condition
         self.reason = reason
-        self.when = when
 
     def __enter__(self) -> None:
         """Enter the block; the plugin reads the block rather than running it."""

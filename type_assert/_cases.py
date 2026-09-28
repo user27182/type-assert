@@ -143,7 +143,7 @@ def skip_reason(namespace: dict[str, Any], case: Case) -> str | None:
     if case.skip_code is None:
         return None
     skip = eval(case.skip_code, namespace)
-    return skip.reason if skip.when else None
+    return skip.reason if skip.condition else None
 
 
 def unbuildable_reason(namespace: dict[str, Any], case: Case) -> str | None:

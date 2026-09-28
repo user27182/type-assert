@@ -231,14 +231,14 @@ class TestSkipBlock:
     """A `with skip_runtime(...):` block skips the runtime half of the cases inside it."""
 
     def test_a_case_in_the_block_is_skipped(self, write):
-        body = "with skip_runtime('a reason'):\n    assert_types(len([1]), int)\n"
+        body = "with skip_runtime(reason='a reason'):\n    assert_types(len([1]), int)\n"
         case_file = write(body, prelude=SKIP_IMPORT)
         with pytest.raises(CaseSkipped, match='a reason'):
             case_file.run(case_file.cases[0])
 
     def test_every_case_in_the_block_is_skipped(self, write):
         body = (
-            "with skip_runtime('a reason'):\n"
+            "with skip_runtime(reason='a reason'):\n"
             '    assert_types(len([1]), int)\n'
             '    assert_types(str(1), str)\n'
         )
@@ -250,7 +250,7 @@ class TestSkipBlock:
 
     def test_a_case_outside_the_block_still_runs(self, write):
         body = (
-            "with skip_runtime('a reason'):\n"
+            "with skip_runtime(reason='a reason'):\n"
             '    assert_types(len([1]), int)\n'
             'assert_types(str(1), str)\n'
         )
@@ -258,14 +258,14 @@ class TestSkipBlock:
         case_file.run(case_file.cases[1])
 
     def test_a_false_condition_runs_the_case(self, write):
-        body = "with skip_runtime('a reason', when=False):\n    assert_types(len([1]), int)\n"
+        body = "with skip_runtime(False, reason='a reason'):\n    assert_types(len([1]), int)\n"
         case_file = write(body, prelude=SKIP_IMPORT)
         case_file.run(case_file.cases[0])
 
     def test_the_condition_sees_the_setup(self, write):
         body = (
             'FLAG = True\n'
-            "with skip_runtime('a reason', when=FLAG):\n"
+            "with skip_runtime(FLAG, reason='a reason'):\n"
             '    assert_types(len([1]), int)\n'
         )
         case_file = write(body, prelude=SKIP_IMPORT)
@@ -273,13 +273,13 @@ class TestSkipBlock:
             case_file.run(case_file.cases[0])
 
     def test_a_block_holding_anything_else_is_malformed(self, write):
-        body = "with skip_runtime('a reason'):\n    x = 1\n    assert_types(x, int)\n"
+        body = "with skip_runtime(reason='a reason'):\n    x = 1\n    assert_types(x, int)\n"
         case_file = write(body, prelude=SKIP_IMPORT)
         assert case_file.error is not None
         assert 'holds only' in case_file.error
 
     def test_a_block_binding_a_name_is_malformed(self, write):
-        body = "with skip_runtime('a reason') as s:\n    assert_types(len([1]), int)\n"
+        body = "with skip_runtime(reason='a reason') as s:\n    assert_types(len([1]), int)\n"
         case_file = write(body, prelude=SKIP_IMPORT)
         assert case_file.error is not None
 
@@ -290,12 +290,12 @@ class TestSkipBlock:
         assert 'module level' in case_file.error
 
     def test_the_guard_goes_after_the_indentation(self, write):
-        body = "with skip_runtime('a reason'):\n    assert_types(len([1]), int)\n"
+        body = "with skip_runtime(reason='a reason'):\n    assert_types(len([1]), int)\n"
         case_file = write(body, prelude=SKIP_IMPORT)
         assert f'    {GUARD}assert_types(len([1]), int)' in case_file.checked_source
 
     def test_running_the_file_runs_the_block(self, write):
-        body = "with skip_runtime('a reason'):\n    assert_types(len([1]), int)\n"
+        body = "with skip_runtime(reason='a reason'):\n    assert_types(len([1]), int)\n"
         case_file = write(body, prelude=SKIP_IMPORT)
         exec(compile(case_file.path.read_text(), str(case_file.path), 'exec'), {})  # noqa: S102
 
@@ -376,7 +376,7 @@ class TestNeverCases:
         case_file.run(case)
 
     def test_a_skip_still_applies(self, write):
-        body = "with skip_runtime('not here'):\n    assert_types(boom(), Never)\n"
+        body = "with skip_runtime(reason='not here'):\n    assert_types(boom(), Never)\n"
         case_file = self.case(write, body)
         (case,) = case_file.cases
         with pytest.raises(CaseSkipped):

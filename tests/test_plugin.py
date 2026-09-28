@@ -143,7 +143,7 @@ def test_a_skip_block_skips_only_its_runtime_half(project, checker):
         'from type_assert import skip_runtime\n\n\n'
         'def boom() -> Never:\n'
         '    raise ValueError\n\n\n'
-        "with skip_runtime('a reason'):\n"
+        "with skip_runtime(reason='a reason'):\n"
         '    assert_types(boom(), Never)\n'
         '    assert_types(len([1]), str)\n'
     )
