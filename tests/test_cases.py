@@ -280,6 +280,63 @@ class TestSkipping:
         assert case_file.unknown_skips(case_file.setup_namespace()) == []
 
 
+class TestSkipComment:
+    """A `# type_assert: skip-runtime:` comment skips the runtime half of one case."""
+
+    def test_a_trailing_comment_skips_its_case(self, write):
+        case_file = write('assert_types(len([1]), int)  # type_assert: skip-runtime: a reason\n')
+        with pytest.raises(CaseSkipped, match='a reason'):
+            case_file.run(case_file.cases[0])
+
+    def test_a_comment_on_the_line_above_skips_the_case_below(self, write):
+        body = '# type_assert: skip-runtime: a reason\nassert_types(len([1]), int)\n'
+        case_file = write(body)
+        with pytest.raises(CaseSkipped, match='a reason'):
+            case_file.run(case_file.cases[0])
+
+    def test_a_comment_inside_a_multiline_case_skips_it(self, write):
+        body = 'assert_types(\n    len([1]),  # type_assert: skip-runtime: a reason\n    int,\n)\n'
+        case_file = write(body)
+        with pytest.raises(CaseSkipped, match='a reason'):
+            case_file.run(case_file.cases[0])
+
+    def test_other_cases_still_run(self, write):
+        body = (
+            '# type_assert: skip-runtime: a reason\n'
+            'assert_types(len([1]), int)\n'
+            'assert_types(str(1), str)\n'
+        )
+        case_file = write(body)
+        assert case_file.cases[1].skip_reason is None
+        case_file.run(case_file.cases[1])
+
+    def test_a_comment_without_a_reason_is_malformed(self, write):
+        case_file = write('assert_types(len([1]), int)  # type_assert: skip-runtime\n')
+        assert case_file.error is not None
+        assert 'must give a reason' in case_file.error
+
+    def test_a_comment_on_no_case_is_malformed(self, write):
+        body = '# type_assert: skip-runtime: a reason\n\nassert_types(len([1]), int)\n'
+        case_file = write(body)
+        assert case_file.error is not None
+        assert 'line(s) 2' in case_file.error
+
+    def test_a_comment_after_a_case_does_not_skip_the_next(self, write):
+        body = 'x = 1  # type_assert: skip-runtime: a reason\nassert_types(len([1]), int)\n'
+        case_file = write(body)
+        assert case_file.error is not None
+
+    def test_a_never_case_is_still_skipped(self, write):
+        body = (
+            'from typing_extensions import Never\n'
+            'def boom(): raise ValueError\n'
+            'assert_types(boom(), Never)  # type_assert: skip-runtime: not here\n'
+        )
+        case_file = write(body)
+        with pytest.raises(CaseSkipped, match='not here'):
+            case_file.run(case_file.cases[0])
+
+
 class TestCheckedSource:
     """The text a checker reads: every case guarded, nothing else touched."""
 

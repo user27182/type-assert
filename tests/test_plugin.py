@@ -146,6 +146,16 @@ def test_a_skipped_case_skips_only_its_runtime_half(project):
     result.stdout.fnmatch_lines(['*a reason*'])
 
 
+def test_a_skip_comment_skips_only_its_runtime_half(project):
+    source = (
+        'from type_assert import assert_types\n\n'
+        'assert_types(len([1]), int)  # type_assert: skip-runtime: a reason\n'
+    )
+    result = project(source).runpytest('-rs')
+    result.assert_outcomes(passed=2, skipped=1)
+    result.stdout.fnmatch_lines(['*a reason*'])
+
+
 QUOTED_NEVER = (
     'from typing import TYPE_CHECKING\n\n'
     'from type_assert import assert_types\n\n'

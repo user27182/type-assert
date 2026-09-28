@@ -178,21 +178,30 @@ moving. Adding a backend is a single module — see `type_assert/_checkers/`.
 ## Skipping a case at runtime
 
 A case that cannot run everywhere — it crashes on a platform, or needs something that is
-not always installed — is named in a `SKIP_RUNTIME` mapping in its own file. A case that
-expects `Never` does not belong here: its expression raising is the claim it makes, and
-the runtime half checks it.
-
+not always installed — carries a `skip-runtime` comment with the reason, either on the
+line directly above the case or trailing any of its lines. A case that expects `Never`
+does not belong here: its expression raising is the claim it makes, and the runtime half
+checks it.
 
 ```python
-SKIP_RUNTIME = {
-    'expression exactly as written': 'why running it fails here',
-}
+# type_assert: skip-runtime: why running it fails here
+assert_types(an_expression(), int)
+assert_types(another_expression(), str)  # type_assert: skip-runtime: why
 ```
 
-Only the runtime half is skipped; the checker still checks the case. The mapping is read
-after the file's setup has run, so making an entry conditional is ordinary Python. An
-entry naming an expression that no case makes fails the file's `setup` test, so a skip
-cannot quietly outlive the case it was written for.
+Only the runtime half is skipped; the checker still checks the case. A comment without a
+reason, or one that sits on no case, fails the file's `setup` test.
+
+A skip that depends on the environment is named in a `SKIP_RUNTIME` mapping instead. The
+mapping is read after the file's setup has run, so making an entry conditional is
+ordinary Python. An entry naming an expression that no case makes fails the file's
+`setup` test, so a skip cannot quietly outlive the case it was written for.
+
+```python
+SKIP_RUNTIME = {}
+if sys.platform == 'win32':
+    SKIP_RUNTIME['expression exactly as written'] = 'why running it fails here'
+```
 
 ## A case that never returns
 
