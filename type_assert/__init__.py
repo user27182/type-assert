@@ -20,6 +20,7 @@ from ._checkers import Checker as Checker
 from ._checkers import CheckerError as CheckerError
 from ._checkers import Diagnostic as Diagnostic
 from ._checkers import get_checker as get_checker
+from ._skip import skip_runtime as skip_runtime
 
 try:
     from ._version import __version__ as __version__

@@ -178,41 +178,30 @@ moving. Adding a backend is a single module — see `type_assert/_checkers/`.
 ## Skipping a case at runtime
 
 A case that cannot run everywhere — it crashes on a platform, or needs something that is
-not always installed — carries a `skip-runtime` comment with the reason, either on the
-line directly above the case or trailing any of its lines. A case that expects `Never`
-does not belong here: its expression raising is the claim it makes, and the runtime half
+not always installed — goes in a `skip_runtime` block. A case that expects `Never` does
+not belong here: its expression raising is the claim it makes, and the runtime half
 checks it.
 
 ```python
-# type-assert: skip-runtime: why running it fails here
-assert_types(an_expression(), int)
-assert_types(another_expression(), str)  # type-assert: skip-runtime: why
+from type_assert import assert_types, skip_runtime
 
-# type-assert: skip-runtime if sys.platform == 'win32': why it fails on Windows
-assert_types(a_third_expression(), bytes)
+with skip_runtime('why running it fails here'):
+    assert_types(an_expression(), int)
+    assert_types(another_expression(), str)
+
+with skip_runtime('why it fails on Windows', when=sys.platform == 'win32'):
+    assert_types(a_third_expression(), bytes)
 ```
 
-Only the runtime half is skipped; the checker still checks the case. A condition is
-evaluated in the file's namespace after its setup has run. A malformed comment, one that
-sits on no case, or two on one case, fails the file's `setup` test.
+Only the runtime half is skipped; the checker still checks each case. The arguments are
+evaluated after the file's setup has run. A block holds only cases and binds no name.
 
-A case that never runs leaves its lines uncovered. To exclude them, add these patterns to
-the coverage configuration; they match unconditional skips only, since a conditional one
-runs somewhere:
+A case that never runs leaves its lines uncovered. This coverage pattern excludes a block
+without a condition:
 
 ```toml
 [tool.coverage.report]
-exclude_also = [
-  '^\s*#\s*type-assert:\s*skip-runtime:.*\n.*',
-  '\S.*#\s*type-assert:\s*skip-runtime:',
-]
-```
-
-A `SKIP_RUNTIME` mapping in the file does the same by naming the expression. An entry
-naming an expression that no case makes fails the file's `setup` test.
-
-```python
-SKIP_RUNTIME = {'expression exactly as written': 'why running it fails here'}
+exclude_also = ['^with skip_runtime\((?!.*\bwhen=).*:$']
 ```
 
 ## A case that never returns
@@ -234,7 +223,7 @@ so the case is a real assertion rather than something to skip: an expression tha
 returns a value fails it, naming what came back. The assertion itself is not run,
 because the call raises while its own arguments are being evaluated, before
 `assert_types` is entered. `NoReturn` is read the same way as `Never`, and a case
-named in `SKIP_RUNTIME` is still skipped. mypy reads the guarded text through `--shadow-file`. pyright
+in a `skip_runtime` block is still skipped. mypy reads the guarded text through `--shadow-file`. pyright
 has no equivalent, so it reads a copy of the cases directory made outside the project:
 imports relative to that directory resolve inside the copy, absolute ones resolve from
 the project as before, and settings scoped to the directory's path do not reach it.

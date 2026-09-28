@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-import io
-import re
-import tokenize
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import NoReturn
@@ -19,11 +16,9 @@ if TYPE_CHECKING:
     from types import CodeType
 
 ASSERTION = 'assert_types'
-SKIP_RUNTIME = 'SKIP_RUNTIME'
+SKIP_BLOCK = 'skip_runtime'
 #: Prefixed to each case when a checker reads the file. See `_guarded`.
 GUARD = 'if bool(): '
-#: A comment that skips the runtime half of the case it sits on or directly above.
-SKIP_COMMENT = re.compile(r'#\s*type-assert:\s*skip-runtime\b\s*(?P<rest>.*?)\s*$')
 
 
 class CaseError(Exception):
@@ -32,14 +27,6 @@ class CaseError(Exception):
 
 class CaseSkipped(Exception):  # noqa: N818
     """Raised instead of running a case the file asks to skip at runtime."""
-
-
-@dataclass(frozen=True)
-class Skip:
-    """A `# type-assert: skip-runtime` comment: why, and when if not always."""
-
-    reason: str
-    condition: str | None = None
 
 
 @dataclass(frozen=True)
@@ -57,8 +44,8 @@ class Case:
     #: Whether the expected type was written as a string. A checker reads it the same
     #: way; at runtime it is built in the file's namespace, which may not be possible.
     quoted: bool = False
-    #: The `# type-assert: skip-runtime` comment on this case, if it has one.
-    skip: Skip | None = None
+    #: The `skip_runtime(...)` call of the `with` block holding this case, if any.
+    skip_code: CodeType | None = None
 
     @property
     def id(self) -> str:
@@ -113,12 +100,6 @@ class CaseFile:
             return
         exec(case.code, namespace)  # noqa: S102
 
-    def unknown_skips(self, namespace: dict[str, Any]) -> list[str]:
-        """Return `SKIP_RUNTIME` keys that match no case, so a stale one is caught."""
-        declared = namespace.get(SKIP_RUNTIME) or {}
-        expressions = {case.expression for case in self.cases}
-        return sorted(key for key in declared if key not in expressions)
-
 
 def expects_never(namespace: dict[str, Any], case: Case) -> bool:
     """Tell whether `case` claims its expression never returns.
@@ -154,32 +135,15 @@ def run_never(namespace: dict[str, Any], case: Case) -> None:
 
 
 def skip_reason(namespace: dict[str, Any], case: Case) -> str | None:
-    """Return why `case` should not run, from the file's `SKIP_RUNTIME` mapping.
+    """Return why `case` should not run, from the `skip_runtime` block holding it.
 
-    A case file maps an expression to the reason running it would fail — a
-    platform crash, an unavailable dependency. Mypy still checks the case, so
-    only the runtime half is skipped. Building the mapping conditionally is
-    ordinary Python, since it is read after the file's setup has run.
+    The block's arguments are evaluated after the file's setup has run, so a skip
+    can depend on it. Only the runtime half is skipped; a checker still checks the case.
     """
-    if case.skip is not None and _applies(namespace, case):
-        return case.skip.reason
-    declared = namespace.get(SKIP_RUNTIME) or {}
-    return declared.get(case.expression) or None
-
-
-def _applies(namespace: dict[str, Any], case: Case) -> bool:
-    """Evaluate the condition of `case`'s skip comment in the file's namespace."""
-    assert case.skip is not None
-    if case.skip.condition is None:
-        return True
-    try:
-        return bool(eval(case.skip.condition, namespace))
-    except Exception as error:
-        msg = (
-            f'the skip-runtime condition {case.skip.condition!r} could not be evaluated '
-            f'({type(error).__name__}: {error})'
-        )
-        raise CaseError(msg) from error
+    if case.skip_code is None:
+        return None
+    skip = eval(case.skip_code, namespace)
+    return skip.reason if skip.when else None
 
 
 def unbuildable_reason(namespace: dict[str, Any], case: Case) -> str | None:
@@ -215,64 +179,9 @@ def _guarded(source: str, cases: Sequence[Case]) -> str:
     lines = source.splitlines(keepends=True)
     for case in cases:
         first = min(case.lines) - 1
-        lines[first] = GUARD + lines[first]
+        indent = len(lines[first]) - len(lines[first].lstrip())
+        lines[first] = lines[first][:indent] + GUARD + lines[first][indent:]
     return ''.join(lines)
-
-
-def _parse_skip(rest: str) -> Skip | None:
-    """Parse what follows `skip-runtime`: `: reason`, or `if condition: reason`."""
-    if rest.startswith(':'):
-        reason = rest[1:].strip()
-        return Skip(reason) if reason else None
-    if not rest.startswith('if '):
-        return None
-    body = rest[3:]
-    for index, char in enumerate(body):
-        if char != ':':
-            continue
-        condition, reason = body[:index].strip(), body[index + 1 :].strip()
-        try:
-            ast.parse(condition, mode='eval')
-        except SyntaxError:
-            continue
-        return Skip(reason, condition) if reason else None
-    return None
-
-
-def _skip_comments(source: str, path: Path) -> dict[int, Skip]:
-    """Return each `# type-assert: skip-runtime` comment in `source`, by line."""
-    found = {}
-    for token in tokenize.generate_tokens(io.StringIO(source).readline):
-        if token.type != tokenize.COMMENT:
-            continue
-        match = SKIP_COMMENT.match(token.string)
-        if match is None:
-            continue
-        lineno = token.start[0]
-        skip = _parse_skip(match['rest'])
-        if skip is None:
-            msg = (
-                f'{path.name}:{lineno}: write a skip-runtime comment as '
-                '`skip-runtime: <reason>` or `skip-runtime if <condition>: <reason>`.'
-            )
-            raise CaseError(msg)
-        found[lineno] = skip
-    return found
-
-
-def _claim_skip(
-    skips: dict[int, Skip], lines: frozenset[int], source_lines: list[str], path: Path
-) -> Skip | None:
-    """Pop the skip comment on a case's lines or on the comment line directly above it."""
-    own_line = min(lines) - 1
-    candidates = sorted(lines)
-    if own_line in skips and source_lines[own_line - 1].lstrip().startswith('#'):
-        candidates.insert(0, own_line)
-    claimed = [skips.pop(line) for line in candidates if line in skips]
-    if len(claimed) > 1:
-        msg = f'{path.name}:{min(lines)}: a case takes one skip-runtime comment.'
-        raise CaseError(msg)
-    return claimed[0] if claimed else None
 
 
 def _case_call(node: ast.AST) -> ast.Call | None:
@@ -285,13 +194,46 @@ def _case_call(node: ast.AST) -> ast.Call | None:
     return call if call.func.id == ASSERTION else None
 
 
+def _skip_block(node: ast.AST, path: Path) -> ast.With | None:
+    """Return a top-level `with skip_runtime(...):` block holding only cases, if `node` is one."""
+    if not isinstance(node, ast.With) or len(node.items) != 1:
+        return None
+    item = node.items[0]
+    call = item.context_expr
+    if not (
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == SKIP_BLOCK
+    ):
+        return None
+    if item.optional_vars is not None or any(_case_call(child) is None for child in node.body):
+        msg = (
+            f'{path.name}:{node.lineno}: a `with {SKIP_BLOCK}(...):` block holds only '
+            f'`{ASSERTION}` cases and binds no name.'
+        )
+        raise CaseError(msg)
+    return node
+
+
+def _case_nodes(tree: ast.Module, path: Path) -> list[tuple[ast.stmt, ast.With | None]]:
+    """Return every case statement, with the skip block that holds it, in file order."""
+    found: list[tuple[ast.stmt, ast.With | None]] = []
+    for node in tree.body:
+        block = _skip_block(node, path)
+        if block is not None:
+            found.extend((child, block) for child in block.body)
+        elif _case_call(node) is not None:
+            found.append((node, None))
+    return found
+
+
 def _reject_nested_assertions(tree: ast.Module, path: Path) -> None:
-    """Reject `assert_types` calls that are not statements at module level.
+    """Reject `assert_types` calls that are not cases at module level or in a skip block.
 
     Such a call still type-checks, but it never becomes a case of its own, so it
     would be silently left out of the runtime half.
     """
-    top_level = {id(call) for call in map(_case_call, tree.body) if call is not None}
+    top_level = {id(_case_call(node)) for node, _ in _case_nodes(tree, path)}
     nested = [
         node
         for node in ast.walk(tree)
@@ -328,27 +270,25 @@ def _parse_case_file(path: Path) -> CaseFile:
     tree = ast.parse(source, filename=str(path))
     _reject_nested_assertions(tree, path)
 
-    setup = [node for node in tree.body if _case_call(node) is None]
+    setup = [
+        node for node in tree.body if _case_call(node) is None and _skip_block(node, path) is None
+    ]
     setup_module = ast.Module(body=setup, type_ignores=[])
     setup_code = compile(ast.fix_missing_locations(setup_module), str(path), 'exec')
 
-    skips = _skip_comments(source, path)
-    source_lines = source.splitlines()
     cases = []
-    for node in tree.body:
+    for node, block in _case_nodes(tree, path):
         call = _case_call(node)
-        if call is None:
-            continue
+        assert call is not None
         if len(call.args) != 2:
             msg = f'{path.name}:{node.lineno}: `{ASSERTION}` takes an expression and a type.'
             raise CaseError(msg)
         expected, quoted = _expected_type(call.args[1], path, node.lineno)
         module = ast.Module(body=[node], type_ignores=[])
-        lines = frozenset(range(node.lineno, (node.end_lineno or node.lineno) + 1))
         cases.append(
             Case(
                 path=path,
-                lines=lines,
+                lines=frozenset(range(node.lineno, (node.end_lineno or node.lineno) + 1)),
                 expression=ast.unparse(call.args[0]),
                 expected=expected,
                 code=compile(ast.fix_missing_locations(module), str(path), 'exec'),
@@ -358,16 +298,15 @@ def _parse_case_file(path: Path) -> CaseFile:
                     'eval',
                 ),
                 quoted=quoted,
-                skip=_claim_skip(skips, lines, source_lines, path),
+                skip_code=None
+                if block is None
+                else compile(
+                    ast.fix_missing_locations(ast.Expression(body=block.items[0].context_expr)),
+                    str(path),
+                    'eval',
+                ),
             )
         )
-    if skips:
-        listed = ', '.join(map(str, sorted(skips)))
-        msg = (
-            f'{path.name}: a skip-runtime comment must sit on a case or on the line directly '
-            f'above one. Found one elsewhere at line(s) {listed}.'
-        )
-        raise CaseError(msg)
 
     case_lines = frozenset().union(*(case.lines for case in cases)) if cases else frozenset()
     return CaseFile(

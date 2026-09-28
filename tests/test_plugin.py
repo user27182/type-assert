@@ -135,24 +135,20 @@ def test_cases_are_independent_of_each_other(project):
     result.assert_outcomes(passed=5)
 
 
-def test_a_skipped_case_skips_only_its_runtime_half(project):
+@pytest.mark.parametrize('checker', ['mypy', 'pyright'])
+def test_a_skip_block_skips_only_its_runtime_half(project, checker):
     source = (
-        'from type_assert import assert_types\n\n'
-        "SKIP_RUNTIME = {'len([1])': 'a reason'}\n"
-        'assert_types(len([1]), int)\n'
+        'from typing_extensions import Never\n\n'
+        'from type_assert import assert_types\n'
+        'from type_assert import skip_runtime\n\n\n'
+        'def boom() -> Never:\n'
+        '    raise ValueError\n\n\n'
+        "with skip_runtime('a reason'):\n"
+        '    assert_types(boom(), Never)\n'
+        '    assert_types(len([1]), str)\n'
     )
-    result = project(source).runpytest('-rs')
-    result.assert_outcomes(passed=2, skipped=1)
-    result.stdout.fnmatch_lines(['*a reason*'])
-
-
-def test_a_skip_comment_skips_only_its_runtime_half(project):
-    source = (
-        'from type_assert import assert_types\n\n'
-        'assert_types(len([1]), int)  # type-assert: skip-runtime: a reason\n'
-    )
-    result = project(source).runpytest('-rs')
-    result.assert_outcomes(passed=2, skipped=1)
+    result = project(source, checkers=checker).runpytest('-rs')
+    result.assert_outcomes(passed=2, failed=1, skipped=2)
     result.stdout.fnmatch_lines(['*a reason*'])
 
 
@@ -208,17 +204,6 @@ def test_a_quoted_type_the_runtime_can_build_is_held_to_by_both_halves(project):
     result = project(source).runpytest()
     # The right type passes both halves and the wrong one fails both: quoting weakens neither.
     result.assert_outcomes(passed=3, failed=2)
-
-
-def test_a_skip_naming_no_case_fails_the_setup_test(project):
-    source = (
-        'from type_assert import assert_types\n\n'
-        "SKIP_RUNTIME = {'gone()': 'a reason'}\n"
-        'assert_types(len([1]), int)\n'
-    )
-    result = project(source).runpytest()
-    result.assert_outcomes(passed=2, failed=1)
-    result.stdout.fnmatch_lines(['*no longer applies to anything*'])
 
 
 def test_nothing_is_collected_when_no_cases_directory_is_configured(project):
@@ -452,8 +437,6 @@ from typing import NoReturn
 from type_assert import assert_types
 from typing_extensions import Never
 
-SKIP_RUNTIME = {'boom()': 'it raises, which is what the case is about'}
-
 
 def boom() -> NoReturn:
     raise RuntimeError
@@ -470,5 +453,5 @@ def test_a_case_after_one_that_never_returns_is_still_checked(project, checker):
     # The checker would otherwise treat everything after the first `Never` as
     # unreachable and check none of it, passing the wrong case in the middle.
     result = project(AFTER_NEVER, checkers=checker).runpytest()
-    result.assert_outcomes(passed=3, skipped=2, failed=2)
+    result.assert_outcomes(passed=5, failed=2)
     result.stdout.fnmatch_lines([f'*len([[]1]) -> str [[]static: {checker}]*'])
