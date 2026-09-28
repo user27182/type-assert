@@ -23,7 +23,7 @@ SKIP_RUNTIME = 'SKIP_RUNTIME'
 #: Prefixed to each case when a checker reads the file. See `_guarded`.
 GUARD = 'if bool(): '
 #: A comment that skips the runtime half of the case it sits on or directly above.
-SKIP_COMMENT = re.compile(r'#\s*type_assert:\s*skip-runtime\b(?::\s*(?P<reason>.*\S))?')
+SKIP_COMMENT = re.compile(r'#\s*type-assert:\s*skip-runtime\b\s*(?P<rest>.*?)\s*$')
 
 
 class CaseError(Exception):
@@ -32,6 +32,14 @@ class CaseError(Exception):
 
 class CaseSkipped(Exception):  # noqa: N818
     """Raised instead of running a case the file asks to skip at runtime."""
+
+
+@dataclass(frozen=True)
+class Skip:
+    """A `# type-assert: skip-runtime` comment: why, and when if not always."""
+
+    reason: str
+    condition: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,8 +57,8 @@ class Case:
     #: Whether the expected type was written as a string. A checker reads it the same
     #: way; at runtime it is built in the file's namespace, which may not be possible.
     quoted: bool = False
-    #: Why the runtime half is skipped, from a `# type_assert: skip-runtime:` comment.
-    skip_reason: str | None = None
+    #: The `# type-assert: skip-runtime` comment on this case, if it has one.
+    skip: Skip | None = None
 
     @property
     def id(self) -> str:
@@ -153,10 +161,25 @@ def skip_reason(namespace: dict[str, Any], case: Case) -> str | None:
     only the runtime half is skipped. Building the mapping conditionally is
     ordinary Python, since it is read after the file's setup has run.
     """
-    if case.skip_reason is not None:
-        return case.skip_reason
+    if case.skip is not None and _applies(namespace, case):
+        return case.skip.reason
     declared = namespace.get(SKIP_RUNTIME) or {}
     return declared.get(case.expression) or None
+
+
+def _applies(namespace: dict[str, Any], case: Case) -> bool:
+    """Evaluate the condition of `case`'s skip comment in the file's namespace."""
+    assert case.skip is not None
+    if case.skip.condition is None:
+        return True
+    try:
+        return bool(eval(case.skip.condition, namespace))
+    except Exception as error:
+        msg = (
+            f'the skip-runtime condition {case.skip.condition!r} could not be evaluated '
+            f'({type(error).__name__}: {error})'
+        )
+        raise CaseError(msg) from error
 
 
 def unbuildable_reason(namespace: dict[str, Any], case: Case) -> str | None:
@@ -196,8 +219,28 @@ def _guarded(source: str, cases: Sequence[Case]) -> str:
     return ''.join(lines)
 
 
-def _skip_comments(source: str, path: Path) -> dict[int, str]:
-    """Return the reason of each `# type_assert: skip-runtime:` comment, by line."""
+def _parse_skip(rest: str) -> Skip | None:
+    """Parse what follows `skip-runtime`: `: reason`, or `if condition: reason`."""
+    if rest.startswith(':'):
+        reason = rest[1:].strip()
+        return Skip(reason) if reason else None
+    if not rest.startswith('if '):
+        return None
+    body = rest[3:]
+    for index, char in enumerate(body):
+        if char != ':':
+            continue
+        condition, reason = body[:index].strip(), body[index + 1 :].strip()
+        try:
+            ast.parse(condition, mode='eval')
+        except SyntaxError:
+            continue
+        return Skip(reason, condition) if reason else None
+    return None
+
+
+def _skip_comments(source: str, path: Path) -> dict[int, Skip]:
+    """Return each `# type-assert: skip-runtime` comment in `source`, by line."""
     found = {}
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
         if token.type != tokenize.COMMENT:
@@ -206,24 +249,30 @@ def _skip_comments(source: str, path: Path) -> dict[int, str]:
         if match is None:
             continue
         lineno = token.start[0]
-        if match['reason'] is None:
-            msg = f'{path.name}:{lineno}: a skip-runtime comment must give a reason after a colon.'
+        skip = _parse_skip(match['rest'])
+        if skip is None:
+            msg = (
+                f'{path.name}:{lineno}: write a skip-runtime comment as '
+                '`skip-runtime: <reason>` or `skip-runtime if <condition>: <reason>`.'
+            )
             raise CaseError(msg)
-        found[lineno] = match['reason']
+        found[lineno] = skip
     return found
 
 
 def _claim_skip(
-    skips: dict[int, str], lines: frozenset[int], source_lines: list[str]
-) -> str | None:
+    skips: dict[int, Skip], lines: frozenset[int], source_lines: list[str], path: Path
+) -> Skip | None:
     """Pop the skip comment on a case's lines or on the comment line directly above it."""
-    first = min(lines)
-    own_line = first - 1
+    own_line = min(lines) - 1
     candidates = sorted(lines)
     if own_line in skips and source_lines[own_line - 1].lstrip().startswith('#'):
         candidates.insert(0, own_line)
-    reasons = [skips.pop(line) for line in candidates if line in skips]
-    return '; '.join(reasons) or None
+    claimed = [skips.pop(line) for line in candidates if line in skips]
+    if len(claimed) > 1:
+        msg = f'{path.name}:{min(lines)}: a case takes one skip-runtime comment.'
+        raise CaseError(msg)
+    return claimed[0] if claimed else None
 
 
 def _case_call(node: ast.AST) -> ast.Call | None:
@@ -309,7 +358,7 @@ def _parse_case_file(path: Path) -> CaseFile:
                     'eval',
                 ),
                 quoted=quoted,
-                skip_reason=_claim_skip(skips, lines, source_lines),
+                skip=_claim_skip(skips, lines, source_lines, path),
             )
         )
     if skips:

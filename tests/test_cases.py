@@ -281,48 +281,48 @@ class TestSkipping:
 
 
 class TestSkipComment:
-    """A `# type_assert: skip-runtime:` comment skips the runtime half of one case."""
+    """A `# type-assert: skip-runtime:` comment skips the runtime half of one case."""
 
     def test_a_trailing_comment_skips_its_case(self, write):
-        case_file = write('assert_types(len([1]), int)  # type_assert: skip-runtime: a reason\n')
+        case_file = write('assert_types(len([1]), int)  # type-assert: skip-runtime: a reason\n')
         with pytest.raises(CaseSkipped, match='a reason'):
             case_file.run(case_file.cases[0])
 
     def test_a_comment_on_the_line_above_skips_the_case_below(self, write):
-        body = '# type_assert: skip-runtime: a reason\nassert_types(len([1]), int)\n'
+        body = '# type-assert: skip-runtime: a reason\nassert_types(len([1]), int)\n'
         case_file = write(body)
         with pytest.raises(CaseSkipped, match='a reason'):
             case_file.run(case_file.cases[0])
 
     def test_a_comment_inside_a_multiline_case_skips_it(self, write):
-        body = 'assert_types(\n    len([1]),  # type_assert: skip-runtime: a reason\n    int,\n)\n'
+        body = 'assert_types(\n    len([1]),  # type-assert: skip-runtime: a reason\n    int,\n)\n'
         case_file = write(body)
         with pytest.raises(CaseSkipped, match='a reason'):
             case_file.run(case_file.cases[0])
 
     def test_other_cases_still_run(self, write):
         body = (
-            '# type_assert: skip-runtime: a reason\n'
+            '# type-assert: skip-runtime: a reason\n'
             'assert_types(len([1]), int)\n'
             'assert_types(str(1), str)\n'
         )
         case_file = write(body)
-        assert case_file.cases[1].skip_reason is None
+        assert case_file.cases[1].skip is None
         case_file.run(case_file.cases[1])
 
     def test_a_comment_without_a_reason_is_malformed(self, write):
-        case_file = write('assert_types(len([1]), int)  # type_assert: skip-runtime\n')
+        case_file = write('assert_types(len([1]), int)  # type-assert: skip-runtime\n')
         assert case_file.error is not None
-        assert 'must give a reason' in case_file.error
+        assert 'write a skip-runtime comment as' in case_file.error
 
     def test_a_comment_on_no_case_is_malformed(self, write):
-        body = '# type_assert: skip-runtime: a reason\n\nassert_types(len([1]), int)\n'
+        body = '# type-assert: skip-runtime: a reason\n\nassert_types(len([1]), int)\n'
         case_file = write(body)
         assert case_file.error is not None
         assert 'line(s) 2' in case_file.error
 
     def test_a_comment_after_a_case_does_not_skip_the_next(self, write):
-        body = 'x = 1  # type_assert: skip-runtime: a reason\nassert_types(len([1]), int)\n'
+        body = 'x = 1  # type-assert: skip-runtime: a reason\nassert_types(len([1]), int)\n'
         case_file = write(body)
         assert case_file.error is not None
 
@@ -330,11 +330,52 @@ class TestSkipComment:
         body = (
             'from typing_extensions import Never\n'
             'def boom(): raise ValueError\n'
-            'assert_types(boom(), Never)  # type_assert: skip-runtime: not here\n'
+            'assert_types(boom(), Never)  # type-assert: skip-runtime: not here\n'
         )
         case_file = write(body)
         with pytest.raises(CaseSkipped, match='not here'):
             case_file.run(case_file.cases[0])
+
+    def test_a_true_condition_skips(self, write):
+        body = (
+            'X = 1\nassert_types(len([1]), int)  # type-assert: skip-runtime if X == 1: a reason\n'
+        )
+        case_file = write(body)
+        with pytest.raises(CaseSkipped, match='a reason'):
+            case_file.run(case_file.cases[0])
+
+    def test_a_false_condition_runs(self, write):
+        body = (
+            'X = 1\nassert_types(len([1]), int)  # type-assert: skip-runtime if X == 2: a reason\n'
+        )
+        case_file = write(body)
+        case_file.run(case_file.cases[0])
+
+    def test_a_condition_may_contain_colons(self, write):
+        body = (
+            "D = {'a': 1}\n"
+            "# type-assert: skip-runtime if D == {'a': 1}: a reason: with a colon\n"
+            'assert_types(len([1]), int)\n'
+        )
+        case_file = write(body)
+        assert case_file.cases[0].skip.condition == "D == {'a': 1}"
+        with pytest.raises(CaseSkipped, match='a reason: with a colon'):
+            case_file.run(case_file.cases[0])
+
+    def test_a_condition_that_fails_is_reported(self, write):
+        body = 'assert_types(len([1]), int)  # type-assert: skip-runtime if missing: a reason\n'
+        case_file = write(body)
+        with pytest.raises(CaseError, match='NameError'):
+            case_file.run(case_file.cases[0])
+
+    def test_two_comments_on_one_case_are_malformed(self, write):
+        body = (
+            '# type-assert: skip-runtime: one\n'
+            'assert_types(len([1]), int)  # type-assert: skip-runtime: two\n'
+        )
+        case_file = write(body)
+        assert case_file.error is not None
+        assert 'one skip-runtime comment' in case_file.error
 
 
 class TestCheckedSource:

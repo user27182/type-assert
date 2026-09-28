@@ -149,7 +149,7 @@ def test_a_skipped_case_skips_only_its_runtime_half(project):
 def test_a_skip_comment_skips_only_its_runtime_half(project):
     source = (
         'from type_assert import assert_types\n\n'
-        'assert_types(len([1]), int)  # type_assert: skip-runtime: a reason\n'
+        'assert_types(len([1]), int)  # type-assert: skip-runtime: a reason\n'
     )
     result = project(source).runpytest('-rs')
     result.assert_outcomes(passed=2, skipped=1)

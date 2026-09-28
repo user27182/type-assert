@@ -184,23 +184,35 @@ does not belong here: its expression raising is the claim it makes, and the runt
 checks it.
 
 ```python
-# type_assert: skip-runtime: why running it fails here
+# type-assert: skip-runtime: why running it fails here
 assert_types(an_expression(), int)
-assert_types(another_expression(), str)  # type_assert: skip-runtime: why
+assert_types(another_expression(), str)  # type-assert: skip-runtime: why
+
+# type-assert: skip-runtime if sys.platform == 'win32': why it fails on Windows
+assert_types(a_third_expression(), bytes)
 ```
 
-Only the runtime half is skipped; the checker still checks the case. A comment without a
-reason, or one that sits on no case, fails the file's `setup` test.
+Only the runtime half is skipped; the checker still checks the case. A condition is
+evaluated in the file's namespace after its setup has run. A malformed comment, one that
+sits on no case, or two on one case, fails the file's `setup` test.
 
-A skip that depends on the environment is named in a `SKIP_RUNTIME` mapping instead. The
-mapping is read after the file's setup has run, so making an entry conditional is
-ordinary Python. An entry naming an expression that no case makes fails the file's
-`setup` test, so a skip cannot quietly outlive the case it was written for.
+A case that never runs leaves its lines uncovered. To exclude them, add these patterns to
+the coverage configuration; they match unconditional skips only, since a conditional one
+runs somewhere:
+
+```toml
+[tool.coverage.report]
+exclude_also = [
+  '^\s*#\s*type-assert:\s*skip-runtime:.*\n.*',
+  '\S.*#\s*type-assert:\s*skip-runtime:',
+]
+```
+
+A `SKIP_RUNTIME` mapping in the file does the same by naming the expression. An entry
+naming an expression that no case makes fails the file's `setup` test.
 
 ```python
-SKIP_RUNTIME = {}
-if sys.platform == 'win32':
-    SKIP_RUNTIME['expression exactly as written'] = 'why running it fails here'
+SKIP_RUNTIME = {'expression exactly as written': 'why running it fails here'}
 ```
 
 ## A case that never returns
