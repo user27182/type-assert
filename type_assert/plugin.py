@@ -245,15 +245,7 @@ class SetupItem(_Item):
         if self.case_file.error is not None:
             pytest.fail(self.case_file.error, pytrace=False)
 
-        namespace = self.case_file.setup_namespace()
-        unknown = self.case_file.unknown_skips(namespace)
-        if unknown:
-            listed = '\n'.join(f'  {key}' for key in unknown)
-            pytest.fail(
-                f'SKIP_RUNTIME names expressions that no case in this file makes, so the '
-                f'skip no longer applies to anything:\n{listed}',
-                pytrace=False,
-            )
+        self.case_file.setup_namespace()
 
         for checker_name in configured_checkers(self.config):
             errors = self.errors_on(checker_name, self.case_file.setup_lines)
